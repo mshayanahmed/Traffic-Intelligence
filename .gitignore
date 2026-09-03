@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.venv/
+venv/
+traffic-analyzer/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs and runtime output
+*.log
+logs/
+backend/uploads/
+backend/processed/
+backend/evidence/
+backend/reports/
+backend/smoke_*.log
+backend/ti_*.log
+
+# Local data
+*.db
+*.sqlite3
+database/*.db
+!database/.gitkeep
+
+# Build artifacts
+build/
+dist/
+*.tar.gz
+*.zip
+
+# Node
+node_modules/
+package-lock.json
+npm-debug.log*
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Model files are kept in source when required for the project; do not ignore the canonical model directory.
+!models/
+!models/*.pt
+
+# Keep project docs and source files tracked
+!README.md
+!LICENSE

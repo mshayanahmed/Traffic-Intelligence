@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Traffic Intelligence — Analysis Report</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230B1217'/%3E%3Ctext x='16' y='21' font-family='sans-serif' font-size='13' font-weight='700' fill='%2324C0C0' text-anchor='middle'%3ETI%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/styles.css">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  .report-shell { max-width: 1100px; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; gap: 24px; }
+  .report-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+  .report-header h1 { font-size: 26px; font-weight: 700; letter-spacing: -.01em; }
+  .report-header .sub { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .status-line {
+    border-left: 3px solid var(--accent-amber);
+    background: var(--tint-amber);
+    color: var(--accent-amber);
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .status-line.ok { border-color: var(--accent-green); background: var(--tint-green); color: var(--accent-green); }
+  .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; }
+  .rsection h2 {
+    font-size: 16px; font-weight: 600;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-subtle);
+    margin-bottom: 12px;
+  }
+  .chart-holder { height: 300px; }
+  .chart-holder.tall { height: 360px; }
+  table.data td { white-space: normal; }
+  @media print {
+    .report-shell { max-width: none; padding: 0; }
+    .no-print { display: none !important; }
+    body { background: #fff !important; color: #0B1217 !important; }
+    [data-theme] { --bg-canvas: #fff; --bg-surface: #fff; }
+    .panel { box-shadow: none !important; }
+    .print-break { page-break-before: always; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar no-print">
+  <div class="brand">
+    <div class="brand-mark">TI</div>
+    <div class="brand-crumb">
+      <small>AI OPERATIONS / REPORT</small>
+      <div class="brand-title-row"><h1>Analysis Report</h1></div>
+    </div>
+  </div>
+  <div class="topbar-spacer"></div>
+  <div class="header-status">
+    <a class="button" href="/" rel="noopener">Back to dashboard</a>
+    <button id="printBtn" class="button primary" type="button">Print</button>
+  </div>
+</header>
+
+<main class="report-shell">
+
+  <article class="panel">
+    <div class="panel-body">
+      <div class="report-header">
+        <div>
+          <h1>Traffic Intelligence</h1>
+          <div class="sub" id="reportMeta">Loading session…</div>
+        </div>
+        <div class="download-row no-print" style="padding:0">
+          <span>Download as</span>
+          <a id="dlCsv" class="dl-btn" href="#">CSV</a>
+          <a id="dlPdf" class="dl-btn" href="#">PDF</a>
+          <a id="dlXlsx" class="dl-btn" href="#">XLSX</a>
+        </div>
+      </div>
+      <div id="statusLine" class="status-line" style="margin-top:12px">Loading…</div>
+    </div>
+  </article>
+
+  <article class="panel rsection">
+    <div class="panel-body">
+      <h2>Executive metrics</h2>
+      <div class="metric-grid">
+        <article class="metric c-blue"><small>Vehicles tracked</small><strong id="mVehicles">—</strong><span>unique IDs in session</span></article>
+        <article class="metric c-green"><small>Average speed</small><strong id="mSpeed">—</strong><span>estimated km/h · calibration dependent</span></article>
+        <article class="metric c-teal"><small>Traffic flow</small><strong id="mFlow">—</strong><span>frame classification</span></article>
+        <article class="metric c-amber"><small>Density</small><strong id="mDensity">—</strong><span>vehicles / m2</span></article>
+      </div>
+    </div>
+  </article>
+
+  <article class="panel rsection print-break">
+    <div class="panel-body">
+      <h2>Traffic volume and estimated speed over time</h2>
+      <div id="traceChart" class="chart-holder"></div>
+      <p class="note" style="margin:8px 0 0">Speed is an estimate derived from configured pixel calibration, not a calibrated roadside measurement.</p>
+    </div>
+  </article>
+
+  <article class="panel rsection print-break">
+    <div class="panel-body">
+      <h2>Vehicle distribution across processed observations</h2>
+      <div id="donutChart" class="chart-holder"></div>
+      <div id="donutLegend" class="legend"></div>
+    </div>
+  </article>
+
+  <article class="panel rsection print-break">
+    <div class="panel-body">
+      <h2>Detection-coordinate density heatmap</h2>
+      <div id="heatmapChart" class="chart-holder tall"></div>
+      <p class="note" style="margin:8px 0 0">One shared cream→red colormap across dashboard and exports.</p>
+    </div>
+  </article>
+
+  <article class="panel rsection print-break">
+    <div class="panel-body">
+      <h2>Honesty notes</h2>
+      <ul style="margin:0;padding-left:18px;font-size:13px;color:var(--text-secondary);line-height:1.9">
+        <li>All speeds are <b>estimates</b>, dependent on configured pixel calibration.</li>
+        <li>License plates are unavailable because no recognition model is connected.</li>
+        <li id="verifyNote">Session verification status: loading…</li>
+        <li>System status: Working with limitations.</li>
+      </ul>
+    </div>
+  </article>
+
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var params = new URLSearchParams(location.search);
+  var sessionId = params.get("session") || "live";
+
+  function api(path) {
+    return fetch(path).then(function (resp) {
+      return resp.json().then(function (body) {
+        if (!resp.ok || body.success === false) throw new Error(body.error || "Request failed");
+        return body;
+      });
+    });
+  }
+
+  function cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  document.getElementById("dlCsv").href = "/api/sessions/" + encodeURIComponent(sessionId) + "/report.csv";
+  document.getElementById("dlPdf").href = "/api/sessions/" + encodeURIComponent(sessionId) + "/report.pdf";
+  document.getElementById("dlXlsx").href = "/api/sessions/" + encodeURIComponent(sessionId) + "/report.xlsx";
+  document.getElementById("printBtn").addEventListener("click", function () { window.print(); });
+
+  api("/api/sessions/" + encodeURIComponent(sessionId) + "/summary").then(function (body) {
+    var d = body.data;
+    document.getElementById("reportMeta").textContent =
+      "Session " + String(d.session_id || sessionId).slice(0, 12) +
+      (d.source_filename ? " · " + d.source_filename : "") +
+      (d.started_at ? " · started " + new Date(d.started_at * 1000).toLocaleString() : "");
+    document.getElementById("mVehicles").textContent = d.unique_vehicles;
+    document.getElementById("mSpeed").textContent = d.average_speed_kmh.toFixed(1);
+    document.getElementById("mFlow").textContent = d.traffic_flow;
+    document.getElementById("mDensity").textContent = Number(d.traffic_density).toFixed(4);
+
+    var statusLine = document.getElementById("statusLine");
+    if (!d.verified) {
+      statusLine.textContent = "NOT VERIFIED — this run was cancelled or interrupted before completion.";
+      statusLine.className = "status-line";
+    } else {
+      statusLine.textContent = "System status: Working with limitations. Speeds are estimates; license-plate recognition is not implemented.";
+      statusLine.className = "status-line ok";
+    }
+    document.getElementById("verifyNote").textContent =
+      "Session verification status: " + (d.verified ? "completed run" : "NOT VERIFIED (cancelled)");
+
+    renderTrace(d.trace || []);
+    renderDonut(d.distribution || []);
+  }).catch(function (err) {
+    document.getElementById("statusLine").textContent = err.message;
+  });
+
+  api("/api/sessions/" + encodeURIComponent(sessionId) + "/heatmap").then(function (body) {
+    renderHeatmap(body.data);
+  }).catch(function () { /* leave blank */ });
+
+  function renderTrace(trace) {
+    var holder = document.getElementById("traceChart");
+    if (!window.echarts || !holder) return;
+    var chart = echarts.init(holder);
+    if (!trace.length) return;
+    chart.setOption({
+      textStyle: { color: cssVar("--text-secondary") },
+      tooltip: { trigger: "axis" },
+      legend: { data: ["Vehicles", "Estimated speed (km/h)"], top: 0 },
+      grid: { left: 48, right: 48, top: 36, bottom: 40 },
+      xAxis: { type: "category", data: trace.map(function (t) { return t.time_s; }), name: "s" },
+      yAxis: [
+        { type: "value", name: "Vehicles" },
+        { type: "value", name: "km/h", splitLine: { show: false } },
+      ],
+      series: [
+        { name: "Vehicles", type: "line", smooth: true, showSymbol: false,
+          data: trace.map(function (t) { return t.vehicles; }),
+          lineStyle: { color: "#0C9C9C", width: 2 }, itemStyle: { color: "#0C9C9C" },
+          areaStyle: { color: "rgba(12,156,156,.08)" } },
+        { name: "Estimated speed (km/h)", type: "line", smooth: true, showSymbol: false,
+          yAxisIndex: 1, data: trace.map(function (t) { return t.avg_speed_kmh; }),
+          lineStyle: { color: "#E46060", width: 2 }, itemStyle: { color: "#E46060" } },
+      ],
+    });
+    window.addEventListener("resize", function () { chart.resize(); });
+    window.addEventListener("beforeprint", function () { chart.resize(); });
+  }
+
+  function renderDonut(distribution) {
+    var total = distribution.reduce(function (sum, d) { return sum + d.count; }, 0);
+    var palette = ["#24C0C0", "#48A848", "#0C489C", "#C07818", "#E46060", "#97A1A3"];
+    var legend = document.getElementById("donutLegend");
+    if (!total || !window.echarts) {
+      legend.innerHTML = "<span class='note'>No detection data available.</span>";
+      return;
+    }
+    var chart = echarts.init(document.getElementById("donutChart"));
+    chart.setOption({
+      tooltip: { trigger: "item", formatter: function (p) { return p.name + ": " + p.value + " (" + p.percent + "%)"; } },
+      series: [{
+        type: "pie", radius: ["52%", "78%"], center: ["50%", "50%"],
+        label: { show: true, formatter: "{b}\n{d}%" },
+        data: distribution.map(function (d, i) {
+          return { name: d.type, value: d.count, itemStyle: { color: palette[i % palette.length] } };
+        }),
+      }],
+    });
+    window.addEventListener("resize", function () { chart.resize(); });
+    window.addEventListener("beforeprint", function () { chart.resize(); });
+    legend.innerHTML = distribution.map(function (d, i) {
+      return '<div class="legend-row">' +
+        '<span class="swatch" style="background:' + palette[i % palette.length] + '"></span>' +
+        "<span>" + d.type + "</span>" +
+        '<span class="pct">' + d.percent.toFixed(1) + "% · " + d.count + "</span></div>";
+    }).join("");
+  }
+
+  function renderHeatmap(heat) {
+    if (!heat || !heat.max || !window.echarts) return;
+    var yLabels = heat.y_labels.slice().reverse();
+    var data = heat.data.map(function (point) {
+      return [point[0], heat.bins_y - 1 - point[1], point[2]];
+    });
+    var chart = echarts.init(document.getElementById("heatmapChart"));
+    chart.setOption({
+      tooltip: { position: "top" },
+      grid: { left: 56, right: 16, top: 12, bottom: 60 },
+      xAxis: { type: "category", data: heat.x_labels, axisLabel: { interval: 3 }, axisLine: { show: false } },
+      yAxis: { type: "category", data: yLabels, axisLabel: { interval: 2 }, axisLine: { show: false } },
+      visualMap: {
+        min: 0, max: heat.max, calculable: false,
+        orient: "horizontal", left: "center", bottom: 4,
+        inRange: { color: (heat.colormap || []).map(function (c) { return c[1]; }) },
+      },
+      series: [{ type: "heatmap", data: data }],
+    });
+    window.addEventListener("resize", function () { chart.resize(); });
+    window.addEventListener("beforeprint", function () { chart.resize(); });
+  }
+})();
+</script>
+</body>
+</html>

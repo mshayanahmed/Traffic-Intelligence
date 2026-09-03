@@ -1,0 +1,36 @@
+﻿name: Feature request
+description: Suggest an improvement or enhancement for Traffic Intelligence.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement. Please describe the problem or opportunity clearly.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What problem are you trying to solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the feature or workflow you would like to see.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Have you considered other approaches or workarounds?
+
+  - type: textarea
+    id: priority
+    attributes:
+      label: Priority and impact
+      description: Why is this important, and how broad is the expected impact?

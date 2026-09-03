@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Traffic Intelligence — AI Traffic Analysis</title>
+<meta name="description" content="Instrument panel for a YOLO-based traffic detection pipeline: live feed, analytics, heatmap, violations, evidence, and reports.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230B1217'/%3E%3Ctext x='16' y='21' font-family='sans-serif' font-size='13' font-weight='700' fill='%2324C0C0' text-anchor='middle'%3ETI%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/styles.css">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.428.0/dist/umd/lucide.min.js"></script>
+</head>
+<body>
+
+<!-- ============================== NAVBAR ============================== -->
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark">TI</div>
+    <div class="brand-crumb">
+      <small>AI OPERATIONS / <span id="roadwayName">ROADWAY 01</span></small>
+      <div class="brand-title-row">
+        <h1>Traffic Intelligence</h1>
+        <div class="roadway-switch">
+          <button id="roadwayBtn" type="button" aria-haspopup="menu" aria-expanded="false">
+            <span data-lucide="video" style="width:12px;height:12px"></span>
+            Switch source
+          </button>
+          <div id="roadwayMenu" class="roadway-menu hidden" role="menu" aria-label="Roadway / camera switcher">
+            <button type="button" role="menuitemradio" aria-checked="true">ROADWAY 01 — Primary sensor</button>
+            <button type="button" role="menuitemradio" aria-checked="false" disabled>ROADWAY 02 — Add camera…</button>
+            <div class="menu-note">Multi-camera ready. Additional roadways appear here once cameras are connected.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <nav class="nav-links" aria-label="Sections">
+    <a href="#/live" data-nav="live"><span data-lucide="scan-line" style="width:14px;height:14px"></span>Live Feed</a>
+    <a href="#/camera" data-nav="camera"><span data-lucide="cctv" style="width:14px;height:14px"></span>Camera</a>
+    <a href="#/overview" data-nav="overview"><span data-lucide="gauge" style="width:14px;height:14px"></span>Overview</a>
+    <a href="#/heatmap" data-nav="heatmap"><span data-lucide="flame" style="width:14px;height:14px"></span>Heatmap</a>
+    <a href="#/violations" data-nav="violations"><span data-lucide="triangle-alert" style="width:14px;height:14px"></span>Violations</a>
+    <a href="#/evidence" data-nav="evidence"><span data-lucide="table" style="width:14px;height:14px"></span>Evidence</a>
+    <a href="#/reports" data-nav="reports"><span data-lucide="file-text" style="width:14px;height:14px"></span>Reports</a>
+    <a href="#/sessions" data-nav="sessions"><span data-lucide="history" style="width:14px;height:14px"></span>Sessions</a>
+    <a href="#/settings" data-nav="settings"><span data-lucide="settings" style="width:14px;height:14px"></span>Settings</a>
+  </nav>
+
+  <div class="topbar-spacer"></div>
+
+  <div class="header-status">
+    <div class="live-indicator" title="Backend connectivity">
+      <span id="systemDot" class="dot" aria-hidden="true"></span>
+      <span id="systemStatus" class="updated-label">Connecting…</span>
+    </div>
+    <button id="themeToggle" class="icon-button" type="button" aria-label="Toggle color theme">
+      <span data-lucide="moon" style="width:14px;height:14px"></span><span id="themeLabel">Dark</span>
+    </button>
+    <div class="roadway-switch">
+      <button id="accountBtn" class="account-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu" title="Operator account">OP</button>
+      <div id="accountMenu" class="roadway-menu hidden" style="left:auto;right:0">
+        <div class="menu-note" id="accountName">Signed in</div>
+        <button type="button" id="logoutBtn">Sign out</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="shell">
+
+  <!-- ============================ LIVE FEED ============================ -->
+  <section id="view-live" class="view active" aria-label="Live detection feed">
+    <div class="page-head">
+      <div>
+        <small>Primary sensor</small>
+        <h2>Live Detection Feed</h2>
+      </div>
+      <em id="feedSessionNote">No feed connected yet</em>
+    </div>
+
+    <div class="feed-grid">
+      <article class="panel hoverable">
+        <div class="panel-head">
+          <div>
+            <small>PRIMARY SENSOR</small>
+            <h3>AI detection feed</h3>
+          </div>
+          <span id="feedBadge" class="badge">IDLE</span>
+        </div>
+        <div class="panel-body">
+          <div class="feed-frame">
+            <img id="videoStream" alt="Processed traffic video feed" class="hidden">
+            <video id="completedVideo" controls playsinline class="hidden"
+              aria-label="Saved processed video"></video>
+            <div id="feedPlaceholder" class="placeholder">
+              <b>No feed connected yet</b>
+              <span>No feed connected yet. Upload a roadway video to start detection.</span>
+              <button id="placeholderUploadBtn" class="button primary" type="button">
+                <span data-lucide="upload" style="width:14px;height:14px"></span> Upload video
+              </button>
+            </div>
+            <div class="corners" id="feedCorners" aria-hidden="true">
+              <i class="c-tl"></i><i class="c-tr"></i><i class="c-bl"></i><i class="c-br"></i>
+            </div>
+            <div class="hud" aria-live="polite">
+              <div class="hud-top">
+                <span class="hud-brand">AI TRAFFIC INTELLIGENCE<small>LIVE ANALYSIS</small></span>
+                <span id="hudStatusChip" class="hud-chip st-idle">IDLE</span>
+              </div>
+              <div class="hud-main">
+                <span class="hud-rec"><i class="dot" aria-hidden="true"></i><b id="hudState">IDLE</b></span>
+                <span>FRAME <b id="hudFrame">—</b><b id="hudFrameTotal"></b></span>
+                <span>VEHICLES <b id="hudVehicles">0</b></span>
+                <span>CONFIDENCE <b id="hudConfidence">—</b></span>
+                <span>FPS <b id="hudFps">—</b></span>
+                <span class="hud-clock">UTC <b id="hudClock">--:--:--</b></span>
+              </div>
+              <div class="hud-sub">
+                <span>ACTIVE VEHICLES <b id="hudActive">0</b></span>
+                <span>UNIQUE VEHICLES <b id="hudUnique">—</b></span>
+                <span>AVG SPEED <b id="hudAvg">—</b> km/h est.</span>
+                <span>VIOLATIONS <b id="hudViol">0</b></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="controls">
+          <button id="startProcessing" class="button primary" type="button">
+            <span data-lucide="upload" style="width:14px;height:14px"></span> Upload video
+          </button>
+          <button id="stopProcessing" class="button danger-outline" type="button" disabled>
+            <span data-lucide="square" style="width:14px;height:14px"></span> Stop
+          </button>
+          <button id="resetView" class="button" type="button">Reset</button>
+          <button id="fullscreenFeed" class="button" type="button">Fullscreen</button>
+
+          <!-- Overlay toggles: client-side presentation only (do not trigger server detection) -->
+          <div class="overlay-toggles" style="display:inline-flex;align-items:center;gap:6px;margin-left:8px">
+            <button id="toggleTrajectories" class="button outline small" type="button">Trajectories</button>
+            <button id="toggleHeatmap" class="button outline small" type="button">Heatmap</button>
+            <button id="toggleBoxes" class="button outline small" type="button">Boxes</button>
+            <button id="toggleLabels" class="button outline small" type="button">Labels</button>
+          </div>
+
+          <a id="downloadProcessedFeedBtn" class="button hidden" href="#" download>
+            <span data-lucide="download" style="width:14px;height:14px"></span> Download processed
+          </a>
+          <input id="fileInput" type="file" accept="video/mp4,video/avi,video/quicktime,video/x-matroska,video/webm" class="hidden" aria-label="Upload roadway video file" title="Upload roadway video file">
+        </div>
+        <div class="feed-note">
+          Source: <b id="sourceLabel">Processed video</b> <span>|</span>
+          Speed: <b>estimated / calibration dependent</b>
+        </div>
+      </article>
+
+      <aside class="panel hoverable" style="display:flex;flex-direction:column">
+        <div class="panel-head">
+          <div>
+            <small>DECISION SUPPORT</small>
+            <h3>AI traffic analysis</h3>
+          </div>
+          <span class="badge teal">LIVE LOGIC</span>
+        </div>
+        <div id="analysisBody" style="display:flex;flex-direction:column;flex:1">
+          <div class="condition">
+            <span>Current condition</span>
+            <strong id="insightCondition">Unavailable</strong>
+            <small id="insightConditionNote">Derived from frame —</small>
+          </div>
+          <div class="insight-grid">
+            <div><span>Dominant vehicle</span><b id="insightDominant">—</b></div>
+            <div><span>Current frame vehicles</span><b id="insightVehicles">0</b></div>
+            <div><span>Observed confidence</span><b id="insightConfidence">—</b></div>
+            <div><span>Active violations</span><b id="insightViolations">0</b></div>
+          </div>
+          <p id="insightCopy" class="insight-copy">Analysis will appear when the detector returns a processed frame.</p>
+          <div class="health" id="healthList">
+            <div><span>Backend</span><b id="healthBackend" class="idle">Not checked</b></div>
+            <div><span>AI model</span><b id="healthModel" class="idle">Not checked</b></div>
+            <div><span>Video processor</span><b id="healthProcessor" class="idle">Idle</b></div>
+            <div><span>Camera</span><b id="healthCamera" class="idle">Inactive</b></div>
+            <div><span>Database</span><b id="healthDatabase" class="idle">Not checked</b></div>
+          </div>
+          <div id="healthError" class="panel-error hidden">
+            <span id="healthErrorText"></span>
+            <button id="healthRetry" class="button danger-outline" type="button">Retry</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================== CAMERA ============================== -->
+  <section id="view-camera" class="view" aria-label="Live camera">
+    <div class="page-head">
+      <div>
+        <small>Direct source</small>
+        <h2>Live Camera</h2>
+      </div>
+      <em>webcam or IP stream · YOLO boxes drawn on-device</em>
+    </div>
+
+    <article class="panel hoverable">
+      <div class="panel-head">
+        <div>
+          <small>LIVE SOURCE</small>
+          <h3>Camera feed</h3>
+        </div>
+        <span id="cameraBadge" class="badge">OFFLINE</span>
+      </div>
+      <div class="panel-body">
+        <div class="feed-frame">
+          <img id="cameraStream" alt="Live camera feed with detection overlays" class="hidden">
+          <div id="cameraPlaceholder" class="placeholder">
+            <b>No camera connected</b>
+            <span>Start a connected webcam (index 0) or an IP camera URL to begin live detection.</span>
+          </div>
+          <div class="corners" id="cameraCorners" aria-hidden="true">
+            <i class="c-tl"></i><i class="c-tr"></i><i class="c-bl"></i><i class="c-br"></i>
+          </div>
+          <div class="hud">
+            <span class="hud-rec"><i class="dot" aria-hidden="true"></i><b id="cameraState">OFFLINE</b></span>
+            <span>SOURCE <b id="cameraSourceLabel">—</b></span>
+            <span class="hud-clock">UTC <b id="cameraClock">--:--:--</b></span>
+          </div>
+        </div>
+      </div>
+      <div class="controls">
+        <input id="cameraSourceInput" type="text" placeholder="Source: 0 for webcam, or rtsp/http URL" aria-label="Camera source"
+          style="flex:1;min-width:220px;font-size:13px;padding:8px 10px;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-surface);color:var(--text-primary)">
+        <button id="cameraStart" class="button primary" type="button">
+          <span data-lucide="play" style="width:14px;height:14px"></span> Start camera
+        </button>
+        <button id="cameraStop" class="button danger-outline" type="button" disabled>
+          <span data-lucide="square" style="width:14px;height:14px"></span> Stop
+        </button>
+      </div>
+      <div class="feed-note">
+        Detection runs on the server against this stream. Speeds remain <b>estimated / calibration dependent</b>.
+      </div>
+    </article>
+  </section>
+
+  <!-- ============================= OVERVIEW ============================= -->
+  <section id="view-overview" class="view" aria-label="Overview">
+    <div class="page-head">
+      <div>
+        <small>Overview</small>
+        <h2>Session readout</h2>
+      </div>
+      <em id="overviewScope">current session · latest processed frame</em>
+    </div>
+
+    <div class="kpis" aria-live="polite">
+      <article class="metric c-blue"><small>Current vehicles</small><strong id="statVehicleCount">0</strong><span>latest processed frame</span></article>
+      <article class="metric c-green"><small>Average speed</small><strong id="statAvgSpeed">—</strong><span>estimated km/h</span></article>
+      <article class="metric c-amber"><small>Traffic density</small><strong id="statDensity">0</strong><span>vehicles / m2</span></article>
+      <article class="metric c-red"><small>Violations</small><strong id="statViolations">0</strong><span>detected in session</span></article>
+      <article class="metric c-teal"><small>Traffic flow</small><strong id="statTrafficFlow">—</strong><span>frame classification</span></article>
+      <article class="metric c-neutral"><small>Processing FPS</small><strong id="statFps">—</strong><span>source rate unavailable</span></article>
+    </div>
+
+    <div class="charts-grid">
+      <article class="panel hoverable">
+        <div class="panel-head">
+          <div>
+            <small>COMPOSITION</small>
+            <h3>Vehicle distribution</h3>
+          </div>
+          <em>all processed observations</em>
+        </div>
+        <div class="panel-body">
+          <div class="chart-box" id="donutChart"></div>
+          <div id="donutEmpty" class="empty-state hidden">
+            <b>No detection data</b>
+            <span>Run a video to populate the distribution.</span>
+          </div>
+        </div>
+        <div id="donutLegend" class="legend"></div>
+      </article>
+
+      <article class="panel hoverable">
+        <div class="panel-head">
+          <div>
+            <small>SESSION TRACE</small>
+            <h3>Volume & speed</h3>
+          </div>
+          <em>real processed points</em>
+        </div>
+        <div class="panel-body">
+          <div class="chart-box" id="traceChart"></div>
+          <div id="traceEmpty" class="empty-state hidden">
+            <b>No trace yet</b>
+            <span>Process a video to populate the trace.</span>
+          </div>
+        </div>
+        <p class="note">Speed is an estimate derived from configured pixel calibration, not a calibrated roadside measurement.</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- ============================== HEATMAP ============================= -->
+  <section id="view-heatmap" class="view" aria-label="Detection heatmap">
+    <div class="page-head">
+      <div>
+        <small>Spatial density</small>
+        <h2>Detection Heatmap</h2>
+      </div>
+      <em>video coordinates · shared cream→red scale</em>
+    </div>
+
+    <article class="panel hoverable heatmap-wrap">
+      <div class="panel-head">
+        <div>
+          <small>SPATIAL DENSITY</small>
+          <h3>Detection-coordinate density</h3>
+        </div>
+        <div class="corners mini-corners" aria-hidden="true" style="position:relative;width:20px;height:20px">
+          <i class="c-tl" style="top:0;left:0;border-right:0;border-bottom:0"></i>
+          <i class="c-br" style="bottom:0;right:0;border-left:0;border-top:0"></i>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="chart-box" id="heatmapChart"></div>
+        <div id="heatmapEmpty" class="empty-state hidden">
+          <b>Heatmap unavailable</b>
+          <span>No spatial detection data in this session yet.</span>
+        </div>
+      </div>
+      <div class="scale"><span>Low</span><i aria-hidden="true"></i><span>High</span></div>
+    </article>
+  </section>
+
+  <!-- ============================= VIOLATIONS =========================== -->
+  <section id="view-violations" class="view" aria-label="Violations center">
+    <div class="page-head">
+      <div>
+        <small>Safety monitor</small>
+        <h2>Violations Center</h2>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span id="violationFlagBadge" class="badge green">0 FLAGGED</span>
+        <span id="violationTotal" class="badge">0 events</span>
+      </div>
+    </div>
+
+    <article class="panel">
+      <div class="table-tools">
+        <select id="violationTypeFilter" aria-label="Filter by violation type">
+          <option value="">All types</option>
+        </select>
+        <select id="violationSeverityFilter" aria-label="Filter by severity">
+          <option value="">All severities</option>
+          <option value="warning">≤10% over threshold</option>
+          <option value="severe">>10% over threshold</option>
+        </select>
+        <div class="grow" style="flex:1"></div>
+        <span class="note" style="margin:0;padding:0">Consecutive speeding frames are coalesced into one event per vehicle.</span>
+      </div>
+      <div id="violationList" class="violation-list">
+        <div class="violation-empty">
+          <b>No violations detected</b>
+          <span>The processor is monitoring supported speed violations.</span>
+        </div>
+      </div>
+      <div class="table-footer">
+        <span id="violationCount">0 events shown</span>
+        <div class="grow"></div>
+        <button id="violationPrev" class="text-button" type="button">Previous</button>
+        <span id="violationPage" class="mono">1 / 1</span>
+        <button id="violationNext" class="text-button" type="button">Next</button>
+      </div>
+    </article>
+  </section>
+
+  <!-- ============================== EVIDENCE ============================ -->
+  <section id="view-evidence" class="view" aria-label="Vehicle evidence">
+    <div class="page-head">
+      <div>
+        <small>Evidence log</small>
+        <h2>Vehicle Evidence</h2>
+      </div>
+      <em>one row per tracked vehicle_id · server-paginated</em>
+    </div>
+
+    <article class="panel">
+      <div class="table-tools">
+        <input id="vehicleSearch" type="search" placeholder="Search ID or type…" aria-label="Search vehicles" style="min-width:220px">
+        <select id="vehicleTypeFilter" aria-label="Filter by vehicle type">
+          <option value="">All types</option>
+        </select>
+        <select id="vehicleViolatedFilter" aria-label="Filter by violation status">
+          <option value="">All vehicles</option>
+          <option value="true">Violating only</option>
+          <option value="false">Clean only</option>
+        </select>
+        <div style="flex:1"></div>
+        <button id="exportCsvBtn" class="button" type="button">
+          <span data-lucide="download" style="width:14px;height:14px"></span> Export CSV
+        </button>
+      </div>
+      <div class="table-scroll">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>ID</th><th>Type</th><th>License plate</th><th>Speed</th>
+              <th>Capture time</th><th>Confidence</th><th>Violation</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="vehicleTableBody">
+            <tr><td colspan="8" class="table-empty">No detection data available.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="table-footer">
+        <span id="vehicleCount">0 vehicles shown</span>
+        <div class="grow"></div>
+        <button id="vehiclePrev" class="text-button" type="button">Previous</button>
+        <span id="vehiclePage" class="mono">1 / 1</span>
+        <button id="vehicleNext" class="text-button" type="button">Next</button>
+      </div>
+      <p class="note">License plates are unavailable because no recognition model is connected. A vehicle's first-seen frame reports 0.0 km/h by construction — there is no prior position to compute displacement from.</p>
+    </article>
+  </section>
+
+  <div id="evidenceModal" class="modal hidden" aria-hidden="true">
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modalEvidenceTitle">
+      <button type="button" class="modal-close" aria-label="Close evidence viewer" data-close-modal="true">×</button>
+      <div class="modal-media">
+        <img id="modalEvidenceImg" src="" alt="Evidence snapshot">
+      </div>
+      <aside class="modal-details">
+        <small>Evidence snapshot</small>
+        <h3 id="modalEvidenceTitle">Vehicle evidence</h3>
+        <div id="modalEvidenceMeta" class="modal-meta"></div>
+        <div class="modal-actions">
+          <a id="modalEvidenceOpen" class="button" href="#" target="_blank" rel="noopener">Open original</a>
+          <button type="button" class="button" data-close-modal="true">Close</button>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- =============================== REPORTS ============================ -->
+  <section id="view-reports" class="view" aria-label="Report center">
+    <div class="page-head">
+      <div>
+        <small>Report center</small>
+        <h2>Reports & Exports</h2>
+      </div>
+      <span id="reportBadge" class="badge teal">READY</span>
+    </div>
+
+    <article class="panel">
+      <div class="panel-head">
+        <div>
+          <small>EXPORT</small>
+          <h3>Compiled analysis report</h3>
+        </div>
+      </div>
+      <div class="report-actions">
+        <button id="reportGenerate" class="button primary" type="button">
+          <span data-lucide="file-output" style="width:14px;height:14px"></span> Generate report
+        </button>
+        <a id="reportView" class="button" href="/report.html" target="_blank" rel="noopener">
+          <span data-lucide="external-link" style="width:14px;height:14px"></span> View report
+        </a>
+      </div>
+      <div class="download-row">
+        <span>Download as</span>
+        <a id="downloadCsvBtn" class="dl-btn" href="#" role="button">CSV</a>
+        <a id="downloadPdfBtn" class="dl-btn" href="#" role="button">PDF</a>
+        <a id="downloadXlsxBtn" class="dl-btn" href="#" role="button">XLSX</a>
+        <a id="downloadProcessedBtn" class="dl-btn hidden" href="#" role="button" download>Processed video</a>
+      </div>
+      <div id="reportStatus" class="report-status" aria-live="polite">Detection data is available. Reports can be generated now.</div>
+    </article>
+
+    <article class="panel print-section">
+      <div class="panel-head">
+        <div>
+          <small>PRINTABLE</small>
+          <h3>Printable report view</h3>
+        </div>
+      </div>
+      <div class="report-actions no-print">
+        <a class="button" href="/report.html" target="_blank" rel="noopener">Open printable report</a>
+      </div>
+      <div class="report-status">The printable view applies a dedicated print stylesheet: navbar and download rows hidden, light theme forced, page breaks before each major section, mono font kept in data tables.</div>
+    </article>
+  </section>
+
+  <!-- ============================ VIDEO LIBRARY ========================= -->
+  <section id="view-sessions" class="view" aria-label="Video library">
+    <div class="page-head">
+      <div>
+        <small>Session log</small>
+        <h2>Video Library</h2>
+      </div>
+      <em>every run is persisted — cancelled runs stay marked NOT VERIFIED</em>
+    </div>
+
+    <article class="panel">
+      <div class="table-scroll">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Date</th><th>Source file</th><th>Duration</th><th>Vehicles</th>
+              <th>Detections</th><th>Violations</th><th>Status</th><th>Processed video</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="sessionTableBody">
+            <tr><td colspan="9" class="table-empty">No sessions recorded yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
+  </section>
+
+  <!-- =============================== SETTINGS =========================== -->
+  <section id="view-settings" class="view" aria-label="Settings">
+    <div class="page-head">
+      <div>
+        <small>Configuration</small>
+        <h2>Settings</h2>
+      </div>
+      <em>applies to the next analysis run</em>
+    </div>
+
+    <article class="panel">
+      <div class="panel-head">
+        <div>
+          <small>CONFIGURATION</small>
+          <h3>Detection & calibration constants</h3>
+        </div>
+      </div>
+      <form id="settingsForm">
+        <div class="settings-form">
+          <div class="field">
+            <label for="cfgConfidence">Confidence threshold</label>
+            <input id="cfgConfidence" type="number" step="0.01" min="0.05" max="0.95" required>
+            <span class="hint">YOLO detections below this confidence are discarded.</span>
+          </div>
+          <div class="field">
+            <label for="cfgNms">NMS threshold</label>
+            <input id="cfgNms" type="number" step="0.01" min="0.05" max="0.95" required>
+            <span class="hint">Non-maximum suppression overlap cutoff.</span>
+          </div>
+          <div class="field">
+            <label for="cfgAlert">ALERT_SPEED_THRESHOLD (km/h)</label>
+            <input id="cfgAlert" type="number" step="0.5" min="1" max="200" required>
+            <span class="hint">Estimated speeds above this flag a speeding violation.</span>
+          </div>
+          <div class="field">
+            <label for="cfgPpm">PIXELS_PER_METER</label>
+            <input id="cfgPpm" type="number" step="0.5" min="1" max="500" required>
+            <span class="hint">Drives every estimated speed value. Calibration dependent.</span>
+          </div>
+          <div class="field">
+            <label for="cfgFps">Video FPS</label>
+            <input id="cfgFps" type="number" step="1" min="1" max="120" required>
+            <span class="hint">Used for capture-time and displacement math.</span>
+          </div>
+          <div class="field">
+            <label>Tracked vehicle classes</label>
+            <div class="class-checks" id="classChecks">
+              <label><input type="checkbox" value="Car"> Car</label>
+              <label><input type="checkbox" value="Bus"> Bus</label>
+              <label><input type="checkbox" value="Truck"> Truck</label>
+              <label><input type="checkbox" value="Bike"> Bike</label>
+              <label><input type="checkbox" value="Rickshaw"> Rickshaw</label>
+            </div>
+            <span class="hint">Untracked classes are dropped before tracking.</span>
+          </div>
+
+          <div class="field">
+            <label for="cfgTrajectoryLength">Trajectory length</label>
+            <input id="cfgTrajectoryLength" type="number" step="1" min="20" max="400" required>
+            <span class="hint">Recent center points kept for heatline trails.</span>
+          </div>
+          <div class="field">
+            <label for="cfgTrajectoryAlpha">Trajectory alpha</label>
+            <input id="cfgTrajectoryAlpha" type="number" step="0.05" min="0.15" max="1" required>
+            <span class="hint">Blends the heatline trail with the frame.</span>
+          </div>
+          <div class="field">
+            <label for="cfgTrajectoryThickness">Trajectory thickness</label>
+            <input id="cfgTrajectoryThickness" type="number" step="1" min="1" max="12" required>
+            <span class="hint">Line thickness for vehicle tracks in the video.</span>
+          </div>
+          <div class="field">
+            <label for="cfgTrajectorySmooth">Trajectory smooth window</label>
+            <input id="cfgTrajectorySmooth" type="number" step="1" min="1" max="12" required>
+            <span class="hint">Simple moving-average smoothing for cleaner trails.</span>
+          </div>
+          <div class="field">
+            <label for="cfgTrajectoryMinAlpha">Heatline min alpha</label>
+            <input id="cfgTrajectoryMinAlpha" type="number" step="0.05" min="0.05" max="0.95" required>
+            <span class="hint">Older trail segments fade toward this alpha.</span>
+          </div>
+          <div class="field">
+            <label for="cfgHeatlineGlow">Heatline glow</label>
+            <input id="cfgHeatlineGlow" type="number" step="0.1" min="0.5" max="3" required>
+            <span class="hint">Glow underlay intensity behind the track line.</span>
+          </div>
+          <div class="field">
+            <label for="cfgHeatlineVisibility">Heatline visibility</label>
+            <input id="cfgHeatlineVisibility" type="number" step="0.05" min="0.2" max="1" required>
+            <span class="hint">Overall visibility of the overlay on top of the live frame.</span>
+          </div>
+        </div>
+        <div class="settings-actions">
+          <button class="button primary" type="submit">Save & apply</button>
+          <span id="settingsSaveNote" class="save-note" role="status"></span>
+        </div>
+      </form>
+    </article>
+  </section>
+
+</main>
+
+<!-- Mobile bottom tab bar -->
+<nav class="tabbar" aria-label="Sections (mobile)">
+  <a href="#/live" data-nav="live"><span data-lucide="scan-line"></span>Live</a>
+  <a href="#/camera" data-nav="camera"><span data-lucide="cctv"></span>Camera</a>
+  <a href="#/overview" data-nav="overview"><span data-lucide="gauge"></span>Overview</a>
+  <a href="#/violations" data-nav="violations"><span data-lucide="triangle-alert"></span>Alerts</a>
+  <a href="#/evidence" data-nav="evidence"><span data-lucide="table"></span>Evidence</a>
+  <a href="#/reports" data-nav="reports"><span data-lucide="file-text"></span>Reports</a>
+  <a href="#/sessions" data-nav="sessions"><span data-lucide="history"></span>Sessions</a>
+  <a href="#/heatmap" data-nav="heatmap"><span data-lucide="flame"></span>Heatmap</a>
+  <a href="#/settings" data-nav="settings"><span data-lucide="settings"></span>Settings</a>
+</nav>
+
+<div id="toastRegion" class="toast-region" aria-live="polite"></div>
+
+<script src="/js/dashboard.js"></script>
+</body>
+</html>

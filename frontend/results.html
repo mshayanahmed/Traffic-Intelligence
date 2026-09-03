@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traffic Analysis Results</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body class="bg-light">
+    <div class="container py-4">
+        <h1 class="display-4 text-center mb-4">Traffic Analysis Results</h1>
+        <div class="card mb-4">
+            <div class="card-body">
+                <canvas id="trafficChart"></canvas>
+            </div>
+        </div>
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Traffic Density</h5>
+                <p><strong>Density:</strong> <span id="trafficDensity">Loading...</span></p>
+                <canvas id="trafficDensityChart"></canvas>
+            </div>
+        </div>
+        <div id="heatmap" class="heatmap-container">
+            <p class="text-center">Traffic density heatmap loading...</p>
+        </div>
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Processed Data</h5>
+                <div id="processedDataSection">
+                    <p><strong>Vehicle Count:</strong> <span id="resultVehicleCount">N/A</span></p>
+                    <p><strong>Avg Speed:</strong> <span id="resultAvgSpeed">N/A</span> km/h</p>
+                    <p><strong>Traffic Flow:</strong> <span id="resultTrafficFlow">N/A</span></p>
+                    <p><strong>Density:</strong> <span id="resultTrafficDensity">N/A</span></p>
+                    <p><strong>Bounding Box:</strong> <span id="resultBoundingBox">N/A</span></p>
+                </div>
+            </div>
+        </div>
+        <div class="d-flex justify-content-center gap-2">
+            <button onclick="window.print()" class="btn btn-outline-primary">Print</button>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+    function formatBoundingBox(bbox) {
+        if (!Array.isArray(bbox)) return '-';
+        return bbox.map(function(val) {
+            return (typeof val === 'number') ? val.toFixed(3) : val;
+        }).join(', ');
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        function updateResults() {
+            fetch('/latest_processed_data')
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('resultVehicleCount').innerText = data.vehicle_count || "0";
+                    document.getElementById('resultAvgSpeed').innerText = (data.average_speed && data.average_speed > 0) ? data.average_speed : "N/A";
+                    document.getElementById('resultTrafficFlow').innerText = data.traffic_flow || "N/A";
+                    document.getElementById('resultTrafficDensity').innerText = data.traffic_density || "0";
+                    document.getElementById('resultBoundingBox').innerText = formatBoundingBox(data.bounding_box) || "N/A";
+                })
+                .catch(err => console.error("Error fetching results:", err));
+        }
+        updateResults();
+        setInterval(updateResults, 3000);
+    });
+    </script>
+</body>
+</html>
+
