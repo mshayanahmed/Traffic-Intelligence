@@ -8,6 +8,16 @@
 
   var $ = function (id) { return document.getElementById(id); };
   var REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var API_BASE_URL = window.TI_API_BASE_URL || (
+    (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+      ? "http://127.0.0.1:5000"
+      : "https://traffic-intelligence-lji9.onrender.com"
+  );
+
+  function apiUrl(path) {
+    if (!path) return API_BASE_URL;
+    return /^https?:\/\//.test(path) ? path : API_BASE_URL + path;
+  }
 
   var state = {
     sessionId: "live",
@@ -34,7 +44,8 @@
 
   /* ------------------------------------------------------------- helpers */
   function api(path, options) {
-    return fetch(path, options).then(function (resp) {
+    var requestOptions = Object.assign({ credentials: "include" }, options || {});
+    return fetch(apiUrl(path), requestOptions).then(function (resp) {
       if (resp.status === 401) {
         window.location.href = "/login.html";
         throw new Error("Sign in required.");
@@ -235,7 +246,7 @@
     var img = $("videoStream");
     var video = $("completedVideo");
     if (video) { video.pause(); video.classList.add("hidden"); video.removeAttribute("src"); }
-    img.src = "/video_feed?ts=" + Date.now();
+    img.src = apiUrl("/video_feed?ts=" + Date.now());
     img.classList.remove("hidden");
     $("feedPlaceholder").classList.add("hidden");
     state.feedMode = "live";
@@ -248,12 +259,12 @@
     if (!video) return;
     img.removeAttribute("src");
     img.classList.add("hidden");
-    video.src = "/api/sessions/" + encodeURIComponent(sessionId) + "/processed-video";
+    video.src = apiUrl("/api/sessions/" + encodeURIComponent(sessionId) + "/processed-video");
     video.classList.remove("hidden");
     $("feedPlaceholder").classList.add("hidden");
     state.feedMode = "completed";
     state.sessionId = sessionId;
-    var url = "/api/sessions/" + encodeURIComponent(sessionId) + "/processed-video?download=1";
+    var url = apiUrl("/api/sessions/" + encodeURIComponent(sessionId) + "/processed-video?download=1");
     var dl = $("downloadProcessedFeedBtn");
     dl.href = url;
     dl.classList.remove("hidden");
@@ -288,7 +299,7 @@
   function connectSSE() {
     if (state.sse) { state.sse.close(); state.sse = null; }
     if (!window.EventSource) return;
-    var source = new EventSource("/api/sessions/" + state.sessionId + "/live");
+    var source = new EventSource(apiUrl("/api/sessions/" + state.sessionId + "/live"), { withCredentials: true });
     state.sse = source;
 
     source.addEventListener("open", function () { /* stream established */ });
@@ -400,7 +411,8 @@
     var form = new FormData();
     form.append("video", file);
     var xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/upload");
+    xhr.open("POST", apiUrl("/api/upload"));
+    xhr.withCredentials = true;
     xhr.upload.addEventListener("progress", function (evt) {
       if (evt.lengthComputable) {
         var pct = Math.round((evt.loaded / evt.total) * 100);
@@ -1034,7 +1046,7 @@
         var actions = '<td class="row-actions">';
         if (s.has_processed) {
           actions += '<button type="button" class="text-button" data-action="play" data-id="' + sid + '">Play</button>' +
-            '<a class="text-button" href="/api/sessions/' + sid + '/processed-video?download=1" download>Download</a>';
+            '<a class="text-button" href="' + apiUrl('/api/sessions/' + sid + '/processed-video?download=1') + '" download>Download</a>';
         }
         if (s.status !== "processing") {
           actions += '<button type="button" class="text-button" data-action="analysis" data-id="' + sid + '">Analysis</button>' +
@@ -1135,7 +1147,7 @@
 
   /* -------------------------------------------------------------- reports */
   function refreshReportLinks() {
-    var base = "/api/sessions/" + state.sessionId + "/report.";
+    var base = apiUrl("/api/sessions/" + state.sessionId + "/report.");
     $("downloadCsvBtn").href = base + "csv";
     $("downloadPdfBtn").href = base + "pdf";
     $("downloadXlsxBtn").href = base + "xlsx";
@@ -1146,7 +1158,7 @@
     var pv = state.summaryCache && state.summaryCache.processed_video;
     var pvBtn = $("downloadProcessedBtn");
     if (pv && pv.download_url) {
-      pvBtn.href = pv.download_url;
+      pvBtn.href = apiUrl(pv.download_url);
       pvBtn.classList.remove("hidden");
     } else {
       pvBtn.classList.add("hidden");
@@ -1159,8 +1171,8 @@
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span> Generating…';
     $("reportStatus").textContent = "Generating compiled report…";
-    var url = "/api/sessions/" + state.sessionId + "/report.pdf";
-    fetch(url).then(function (resp) {
+    var url = apiUrl("/api/sessions/" + state.sessionId + "/report.pdf");
+    fetch(url, { credentials: "include" }).then(function (resp) {
       if (!resp.ok) throw new Error("Report generation failed (" + resp.status + ")");
       return resp.blob();
     }).then(function (blob) {
@@ -1401,7 +1413,7 @@
   /* -------------------------------------------------------- live camera */
   function attachCameraStream(sourceLabel) {
     var img = $("cameraStream");
-    img.src = "/api/camera/stream?ts=" + Date.now();
+    img.src = apiUrl("/api/camera/stream?ts=" + Date.now());
     img.classList.remove("hidden");
     $("cameraPlaceholder").classList.add("hidden");
     $("cameraSourceLabel").textContent = sourceLabel;
@@ -1414,7 +1426,7 @@
     var img = $("videoStream");
     if (!img) return;
     // Attach MJPEG stream with cache-busting timestamp
-    img.src = "/video_feed?ts=" + Date.now();
+    img.src = apiUrl("/video_feed?ts=" + Date.now());
     img.classList.remove("hidden");
 
     // Hide the completed <video> player (if visible)

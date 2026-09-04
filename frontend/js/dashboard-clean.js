@@ -1,4 +1,8 @@
-const API_BASE_URL = window.TRAFFIC_API_URL || 'http://127.0.0.1:5000';
+const API_BASE_URL = window.TI_API_BASE_URL || (
+  (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    ? 'http://127.0.0.1:5000'
+    : 'https://traffic-intelligence-lji9.onrender.com'
+);
 const get = path => fetch(API_BASE_URL + path);
 const byId = id => document.getElementById(id);
 const setText = (id, value) => { const node = byId(id); if (node) node.textContent = value; };

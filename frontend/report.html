@@ -132,28 +132,29 @@
 
 </main>
 
+<script src="/js/config.js"></script>
 <script>
-(function () {
-  "use strict";
-  var params = new URLSearchParams(location.search);
-  var sessionId = params.get("session") || "live";
+( function () {
+"use strict";
+var params = new URLSearchParams(location.search);
+var sessionId = params.get("session") || "live";
 
-  function api(path) {
-    return fetch(path).then(function (resp) {
-      return resp.json().then(function (body) {
-        if (!resp.ok || body.success === false) throw new Error(body.error || "Request failed");
-        return body;
-      });
+function api(path) {
+  return fetch(window.tiApiUrl(path), { credentials: "include" }).then(function (resp) {
+    return resp.json().then(function (body) {
+      if (!resp.ok || body.success === false) throw new Error(body.error || "Request failed");
+      return body;
     });
-  }
+  });
+}
 
   function cssVar(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   }
 
-  document.getElementById("dlCsv").href = "/api/sessions/" + encodeURIComponent(sessionId) + "/report.csv";
-  document.getElementById("dlPdf").href = "/api/sessions/" + encodeURIComponent(sessionId) + "/report.pdf";
-  document.getElementById("dlXlsx").href = "/api/sessions/" + encodeURIComponent(sessionId) + "/report.xlsx";
+  document.getElementById("dlCsv").href = window.tiApiUrl("/api/sessions/" + encodeURIComponent(sessionId) + "/report.csv");
+  document.getElementById("dlPdf").href = window.tiApiUrl("/api/sessions/" + encodeURIComponent(sessionId) + "/report.pdf");
+  document.getElementById("dlXlsx").href = window.tiApiUrl("/api/sessions/" + encodeURIComponent(sessionId) + "/report.xlsx");
   document.getElementById("printBtn").addEventListener("click", function () { window.print(); });
 
   api("/api/sessions/" + encodeURIComponent(sessionId) + "/summary").then(function (body) {

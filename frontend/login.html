@@ -115,6 +115,7 @@
   <p class="auth-note">Traffic Intelligence · instrument panel for a YOLO detection pipeline</p>
 </div>
 
+<script src="/js/config.js"></script>
 <script>
 (function () {
   "use strict";
@@ -149,10 +150,10 @@
     evt.preventDefault();
     errorBox.style.display = "none";
     submit.disabled = true;
-    fetch("/api/auth/" + mode, {
+    fetch(window.tiApiUrl("/api/auth/" + mode), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
+      credentials: "include",
       body: JSON.stringify({
         username: document.getElementById("username").value,
         password: document.getElementById("password").value,

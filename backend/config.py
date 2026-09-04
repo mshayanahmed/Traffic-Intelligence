@@ -50,7 +50,14 @@ CONFIG = {
     "EVIDENCE_DIR": _env_path("EVIDENCE_DIR", EVIDENCE_DIR),
     "REPORTS_DIR": _env_path("REPORTS_DIR", REPORTS_DIR),
     "LOG_DIR": _env_path("LOG_DIR", LOG_DIR),
-    "CORS_ORIGINS": _env_list("CORS_ORIGINS", ["http://localhost:5000", "http://127.0.0.1:5000"]),
+    "CORS_ORIGINS": _env_list(
+        "CORS_ORIGINS",
+        [
+            "https://traffic-intelligence-web.vercel.app",
+            "http://localhost:5000",
+            "http://127.0.0.1:5000",
+        ],
+    ),
     "MAX_UPLOAD_SIZE": int(os.environ.get("MAX_UPLOAD_SIZE", 524288000)),
     "MONITORED_AREA": (640 / 20) * (360 / 20),
     "TRAJECTORY_LENGTH": int(os.environ.get("TRAJECTORY_LENGTH", 200)),
