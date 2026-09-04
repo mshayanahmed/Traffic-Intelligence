@@ -105,6 +105,10 @@ PUBLIC_PREFIXES = ("/login.html", "/css/", "/js/", "/images/", "/favicon.ico",
 
 @app.before_request
 def require_login():
+    # Allow CORS preflight requests through before authentication so they
+    # can receive the appropriate CORS response headers.
+    if request.method == "OPTIONS":
+        return None
     path = request.path
     if any(path == p or path.startswith(p) for p in PUBLIC_PREFIXES):
         return None
