@@ -167,7 +167,8 @@ img { max-width: 100%; display: block; }
   border-radius: var(--radius-control);
   box-shadow: 0 8px 24px rgba(8, 16, 21, .25);
   padding: 6px;
-  z-index: 60;
+  z-index: 220; /* ensure dropdowns float above content */
+  will-change: transform;
 }
 .roadway-menu button {
   display: flex; width: 100%; align-items: center; justify-content: space-between;
@@ -233,6 +234,7 @@ img { max-width: 100%; display: block; }
   color: var(--brand-teal-bright);
   font-family: var(--font-display);
   font-weight: 600; font-size: 12px;
+  z-index: 210;
 }
 
 /* ---------------------------------------------------------------- layout */
@@ -414,6 +416,18 @@ img { max-width: 100%; display: block; }
   background: #06131a;
   z-index: 1;
 }
+/* Dropzone overlay inside feed-frame (ensures it's visually contained) */
+.feed-frame .dropzone { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; }
+.feed-frame .dropzone.visible { display: flex; }
+
+/* Ensure panel bodies have a minimum height so empty states don't overlap */
+.panel { min-height: 140px; }
+.panel .panel-body { min-height: 120px; position: relative; }
+
+/* Empty states: absolute only inside chart-box, elsewhere flow normally */
+.empty-state { position: static; }
+.chart-box > .empty-state { position: absolute; inset: 0; }
+
 /* Video Library per-row action links. */
 .row-actions { display: flex; flex-wrap: wrap; gap: 2px 10px; }
 .row-stack { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
@@ -942,12 +956,13 @@ td.mono, .cell-mono { font-family: var(--font-mono); font-size: 13px; font-weigh
   color: var(--text-primary);
 }
 .field .hint { display: block; font-size: 12px; color: var(--text-tertiary); margin-top: 4px; }
-.class-checks { display: flex; gap: 12px; flex-wrap: wrap; }
+.class-checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; align-items: center; }
 .class-checks label {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 13px; font-weight: 400;
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 500;
   letter-spacing: 0; text-transform: none;
   color: var(--text-primary);
+  padding: 6px 8px; border-radius: 6px; background: var(--bg-surface); border: 1px solid var(--border-subtle);
 }
 .settings-actions { display: flex; align-items: center; gap: 12px; padding: 0 16px 16px; }
 .settings-actions .save-note { font-size: 12px; color: var(--text-secondary); }
