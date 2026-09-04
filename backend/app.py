@@ -47,6 +47,35 @@ else:
     except ImportError:
         logger.warning("flask-cors not installed; same-origin serving still works.")
 
+
+# Ensure CORS headers are present on all responses for allowed origins, including
+# authentication error responses returned from the before_request auth gate.
+# This supplements Flask-CORS and guarantees Access-Control-Allow-Origin and
+# Access-Control-Allow-Credentials are set even when a 401/302/403/404/500 is
+# returned before Flask-CORS can decorate the response in some environments.
+@app.after_request
+def apply_cors(response):
+    origin = request.headers.get("Origin")
+    # Use configured origins if present; fall back to localhost dev origins.
+    allowed = cors_origins or ["http://localhost:5000", "http://127.0.0.1:5000"]
+    if origin and origin in allowed:
+        # Only set the Origin header when not already present (respect Flask-CORS)
+        if "Access-Control-Allow-Origin" not in response.headers:
+            response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        # Allow common request headers and methods used by the frontend. Do not
+        # over-broaden these unless required.
+        response.headers.setdefault("Access-Control-Allow-Headers", "Content-Type,Authorization")
+        response.headers.setdefault("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+        # Ensure caches vary by Origin
+        vary = response.headers.get("Vary")
+        if vary:
+            if "Origin" not in [v.strip() for v in vary.split(",")]:
+                response.headers["Vary"] = vary + ", Origin"
+        else:
+            response.headers["Vary"] = "Origin"
+    return response
+
 UPLOAD_FOLDER = CONFIG["UPLOAD_DIR"]
 PROCESSED_FOLDER = CONFIG["PROCESSED_DIR"]
 REPORTS_FOLDER = CONFIG["REPORTS_DIR"]
