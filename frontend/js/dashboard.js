@@ -419,13 +419,21 @@
     var xhr = new XMLHttpRequest();
     xhr.open("POST", apiUrl("/api/upload"));
     xhr.withCredentials = true;
+    var progressEl = $("uploadProgress");
+    var progressBar = progressEl ? progressEl.querySelector('.progress-bar i') : null;
+    var progressLabel = $("uploadProgressLabel");
+    if (progressEl) { progressEl.classList.remove('hidden'); if (progressBar) progressBar.style.width = '0%'; if (progressLabel) progressLabel.textContent = 'Uploading…'; }
+
     xhr.upload.addEventListener("progress", function (evt) {
       if (evt.lengthComputable) {
         var pct = Math.round((evt.loaded / evt.total) * 100);
         setFeedBadge("UPLOADING " + pct + "%", "teal");
+        if (progressBar) progressBar.style.width = pct + '%';
+        if (progressLabel) progressLabel.textContent = 'Uploading — ' + pct + '%';
       }
     });
     xhr.addEventListener("load", function () {
+      try { if (progressBar) progressBar.style.width = '100%'; if (progressLabel) progressLabel.textContent = 'Finalizing…'; } catch (e) {}
       var body = {};
       try { body = JSON.parse(xhr.responseText); } catch (e) { /* noop */ }
       if (xhr.status >= 200 && xhr.status < 300 && body.job_id) {
@@ -439,14 +447,18 @@
         attachLiveStream();
         connectSSE();
         setTimeout(pollJobButtons, 500);
+        // hide progress after short delay
+        setTimeout(function () { if (progressEl) progressEl.classList.add('hidden'); }, 800);
       } else {
         setFeedBadge("IDLE", "");
         toast(body.error || "Upload failed.", "error");
+        if (progressEl) { progressEl.classList.add('hidden'); }
       }
     });
     xhr.addEventListener("error", function () {
       setFeedBadge("IDLE", "");
       toast("Upload failed — network error.", "error");
+      if (progressEl) { progressEl.classList.add('hidden'); }
     });
     xhr.send(form);
   }
@@ -1232,6 +1244,39 @@
 
     $("startProcessing").addEventListener("click", function () { $("fileInput").click(); });
     $("placeholderUploadBtn").addEventListener("click", function () { $("fileInput").click(); });
+    // File input change -> upload
+    $("fileInput").addEventListener("change", function (evt) {
+      var f = (this.files && this.files[0]) || null;
+      if (f) uploadVideo(f);
+      // reset input so same file can be selected again
+      try { this.value = null; } catch (e) { /* ignore */ }
+    });
+
+    // Drag-and-drop support on the feed frame
+    (function () {
+      var frame = document.querySelector('.feed-frame');
+      var dropzone = $('dropzone');
+      if (!frame || !dropzone) return;
+      function onDragOver(e) { e.preventDefault(); frame.classList.add('dragover'); dropzone.classList.add('visible'); }
+      function onDragLeave(e) { frame.classList.remove('dragover'); dropzone.classList.remove('visible'); }
+      function onDrop(e) {
+        e.preventDefault(); frame.classList.remove('dragover'); dropzone.classList.remove('visible');
+        var files = (e.dataTransfer && e.dataTransfer.files) || [];
+        if (files.length) uploadVideo(files[0]);
+      }
+      frame.addEventListener('dragover', onDragOver);
+      frame.addEventListener('dragenter', onDragOver);
+      frame.addEventListener('dragleave', onDragLeave);
+      frame.addEventListener('drop', onDrop);
+    })();
+
+    // Keyboard: close menus with Escape
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' || e.key === 'Esc') {
+        var am = $('accountMenu'), rb = $('accountBtn'); if (am && !am.classList.contains('hidden')) { am.classList.add('hidden'); if (rb) rb.setAttribute('aria-expanded', 'false'); }
+        var rm = $('roadwayMenu'), rbtn = $('roadwayBtn'); if (rm && !rm.classList.contains('hidden')) { rm.classList.add('hidden'); if (rbtn) rbtn.setAttribute('aria-expanded', 'false'); }
+      }
+    });
     $("fileInput").addEventListener("change", function () {
       if (this.files && this.files[0]) uploadVideo(this.files[0]);
       this.value = "";
@@ -1348,6 +1393,15 @@
       accountMenu.classList.toggle("hidden");
       accountBtn.setAttribute("aria-expanded",
         String(!accountMenu.classList.contains("hidden")));
+      if (!accountMenu.classList.contains('hidden')) {
+        // focus first interactive element
+        var first = accountMenu.querySelector('button, [role="menuitem"], [tabindex]');
+        if (first && first.focus) first.focus();
+      }
+    });
+    // keyboard support: open with ArrowDown, close with Escape
+    accountBtn.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); accountMenu.classList.remove('hidden'); accountBtn.setAttribute('aria-expanded', 'true'); var first = accountMenu.querySelector('button, [role="menuitem"], [tabindex]'); if (first && first.focus) first.focus(); }
     });
     document.addEventListener("click", function () {
       accountMenu.classList.add("hidden");
@@ -1409,6 +1463,13 @@
       evt.stopPropagation();
       var open = roadwayMenu.classList.toggle("hidden");
       roadwayBtn.setAttribute("aria-expanded", String(!open));
+      if (!roadwayMenu.classList.contains('hidden')) {
+        var first = roadwayMenu.querySelector('button, [role="menuitem"], [tabindex]');
+        if (first && first.focus) first.focus();
+      }
+    });
+    roadwayBtn.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); roadwayMenu.classList.remove('hidden'); roadwayBtn.setAttribute('aria-expanded', 'true'); var first = roadwayMenu.querySelector('button, [role="menuitem"], [tabindex]'); if (first && first.focus) first.focus(); }
     });
     document.addEventListener("click", function () {
       roadwayMenu.classList.add("hidden");

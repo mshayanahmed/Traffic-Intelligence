@@ -104,6 +104,23 @@
                 <span data-lucide="upload" style="width:14px;height:14px"></span> Upload video
               </button>
             </div>
+
+            <!-- Drag-and-drop upload area (overlay) -->
+            <div id="dropzone" class="dropzone" aria-hidden="false">
+              <div class="dropzone-inner">
+                <span class="dropzone-icon" aria-hidden="true">📁</span>
+                <div class="dropzone-copy">
+                  <strong>Drop a video here to upload</strong>
+                  <small>MP4, WebM, MKV. Or click Upload video.</small>
+                </div>
+              </div>
+            </div>
+
+            <!-- Upload progress UI -->
+            <div id="uploadProgress" class="upload-progress hidden" role="status" aria-live="polite">
+              <div class="progress-bar" aria-hidden="true"><i style="width:0%"></i></div>
+              <div class="progress-meta"><span id="uploadProgressLabel">Preparing upload…</span></div>
+            </div>
             <div class="corners" id="feedCorners" aria-hidden="true">
               <i class="c-tl"></i><i class="c-tr"></i><i class="c-bl"></i><i class="c-br"></i>
             </div>
