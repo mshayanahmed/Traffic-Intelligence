@@ -214,8 +214,14 @@
       statusEl.dataset.locked = "";
       state.lastUpdateAt = state.lastUpdateAt || Date.now();
       setHealth("healthBackend", d.backend, "ok");
-      setHealth("healthModel", d.ai_model,
-        d.ai_model === "Loaded" ? "ok" : (d.ai_model === "Failed" ? "fail" : "idle"));
+      var modelStatusRaw = d.ai_model || "";
+      var modelLabel = (modelStatusRaw === "READY" || modelStatusRaw === "Loaded") ? "Ready" :
+        (modelStatusRaw === "LOADING" ? "Loading" :
+          (modelStatusRaw === "ERROR" || modelStatusRaw === "Failed" ? "Error" :
+            (modelStatusRaw === "NOT_LOADED" ? "Not loaded" : (modelStatusRaw || "Not checked"))));
+      var modelCls = (modelStatusRaw === "READY" || modelStatusRaw === "Loaded") ? "ok" :
+        (modelStatusRaw === "ERROR" || modelStatusRaw === "Failed" ? "fail" : "idle");
+      setHealth("healthModel", modelLabel, modelCls);
       setHealth("healthProcessor", d.video_processor,
         d.video_processor === "Processing" ? "ok" : "idle");
       setHealth("healthCamera", d.camera, d.camera === "Active" ? "ok" : "idle");
