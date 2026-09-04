@@ -16,19 +16,19 @@ import cv2
 import process_video as video_processor
 from process_video import process_traffic_video, data_lock, processed_data
 from analytics import frames_to_records
+from config import CONFIG
 import session_store
 
 logger = logging.getLogger(__name__)
 
-MAX_UPLOAD_BYTES = 500 * 1024 * 1024
+MAX_UPLOAD_BYTES = int(CONFIG.get("MAX_UPLOAD_SIZE", 500 * 1024 * 1024))
 ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 
 _jobs = []
 _jobs_lock = threading.Lock()
-_backend_dir = os.path.dirname(os.path.abspath(__file__))
-_upload_folder = os.path.join(_backend_dir, "uploads")
-_processed_folder = os.path.join(_backend_dir, "processed")
-_evidence_root = os.path.join(_backend_dir, "evidence")
+_upload_folder = CONFIG["UPLOAD_DIR"]
+_processed_folder = CONFIG["PROCESSED_DIR"]
+_evidence_root = CONFIG["EVIDENCE_DIR"]
 os.makedirs(_upload_folder, exist_ok=True)
 os.makedirs(_processed_folder, exist_ok=True)
 os.makedirs(_evidence_root, exist_ok=True)

@@ -37,7 +37,7 @@ import analytics
 from config import CONFIG
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-REPORTS_FOLDER = os.path.join(BASE_DIR, "reports")
+REPORTS_FOLDER = CONFIG.get("REPORTS_DIR") or os.path.join(BASE_DIR, "reports")
 os.makedirs(REPORTS_FOLDER, exist_ok=True)
 
 logger = logging.getLogger(__name__)

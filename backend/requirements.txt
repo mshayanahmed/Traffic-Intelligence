@@ -7,7 +7,7 @@ torch
 torchvision
 ultralytics
 tensorflow
-Flask
+Flask>=2.0
 Flask-Cors
 gunicorn
 scipy
@@ -19,3 +19,4 @@ reportlab
 jinja2
 requests
 openpyxl
+pytest

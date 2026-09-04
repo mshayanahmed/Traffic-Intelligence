@@ -25,20 +25,36 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder="../frontend", static_url_path="/static")
-# Required for signed session cookies (login system).
-app.secret_key = os.environ.get("TI_SECRET_KEY", "traffic-intelligence-local-key")
 
-try:
-    from flask_cors import CORS
-    CORS(app)
-except ImportError:
-    logger.warning("flask-cors not installed; same-origin serving still works.")
+secret_key = os.environ.get("TI_SECRET_KEY")
+if not secret_key and (os.environ.get("FLASK_ENV") == "production" or os.environ.get("RENDER") == "true"):
+    raise RuntimeError("TI_SECRET_KEY is required in production. Set it in the Render environment.")
+app.secret_key = secret_key or "traffic-intelligence-local-key"
 
-UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
-REPORTS_FOLDER = os.path.join(os.path.dirname(__file__), "reports")
+cors_origins = CONFIG.get("CORS_ORIGINS", [])
+if cors_origins:
+    try:
+        from flask_cors import CORS
+        CORS(app, resources={r"/api/*": {"origins": cors_origins}}, supports_credentials=True)
+        app.config["SESSION_COOKIE_SAMESITE"] = "None" if any(origin.startswith("https://") for origin in cors_origins) else "Lax"
+        app.config["SESSION_COOKIE_SECURE"] = any(origin.startswith("https://") for origin in cors_origins)
+    except ImportError:
+        logger.warning("flask-cors not installed; same-origin serving still works.")
+else:
+    try:
+        from flask_cors import CORS
+        CORS(app, resources={r"/api/*": {"origins": ["http://localhost:5000", "http://127.0.0.1:5000"]}}, supports_credentials=True)
+    except ImportError:
+        logger.warning("flask-cors not installed; same-origin serving still works.")
+
+UPLOAD_FOLDER = CONFIG["UPLOAD_DIR"]
+PROCESSED_FOLDER = CONFIG["PROCESSED_DIR"]
+REPORTS_FOLDER = CONFIG["REPORTS_DIR"]
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+app.config["PROCESSED_FOLDER"] = PROCESSED_FOLDER
 app.config["REPORTS_FOLDER"] = REPORTS_FOLDER
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(PROCESSED_FOLDER, exist_ok=True)
 os.makedirs(REPORTS_FOLDER, exist_ok=True)
 
 FRONTEND_FOLDER = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
@@ -200,4 +216,6 @@ if __name__ == "__main__":
         camera_manager.setup_database()
     except Exception:
         pass
-    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+    host = os.environ.get("BACKEND_HOST", "0.0.0.0")
+    port = int(os.environ.get("PORT") or os.environ.get("BACKEND_PORT") or "5000")
+    app.run(host=host, port=port, debug=False, use_reloader=False)

@@ -19,3 +19,4 @@ reportlab
 jinja2
 requests
 openpyxl
+pytest
