@@ -33,16 +33,64 @@ from config import CONFIG
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Model - loaded lazily exactly once.
+# Model - loaded lazily exactly once, with status tracking to avoid
+# reloading on health checks and to allow the health endpoint to report
+# READY / LOADING / NOT_LOADED / ERROR without side effects.
 # ---------------------------------------------------------------------------
 model = None
+model_status = "NOT_LOADED"  # one of: NOT_LOADED, LOADING, READY, ERROR
+model_error = None
+_model_lock = threading.Lock()
+
+
+def _load_model_blocking():
+    """Blocking model load. Sets model, model_status and model_error.
+    Call under _model_lock or from a background thread."""
+    global model, model_status, model_error
+    try:
+        model_status = "LOADING"
+        from ultralytics import YOLO
+        model = YOLO(CONFIG["YOLO_MODEL"])
+        model_status = "READY"
+        model_error = None
+        logger.info("YOLO model loaded: %s", CONFIG["YOLO_MODEL"])
+    except Exception as exc:
+        model = None
+        model_status = "ERROR"
+        model_error = str(exc)
+        logger.exception("Failed to load YOLO model: %s", exc)
+
+
+def ensure_model_loaded(async_load=True):
+    """Ensure model load is scheduled or completed.
+    If async_load is True, schedule a background thread to load the model
+    if not already loading or loaded. If async_load is False, perform a
+    blocking load (useful for startup paths that must guarantee readiness).
+    Returns the current model_status."""
+    global model_status
+    with _model_lock:
+        if model_status == "READY":
+            return model_status
+        if model_status == "LOADING":
+            return model_status
+        # NOT_LOADED or ERROR -> attempt load
+        if async_load:
+            model_status = "LOADING"
+            t = threading.Thread(target=_load_model_blocking, daemon=True)
+            t.start()
+            return model_status
+        else:
+            _load_model_blocking()
+            return model_status
 
 
 def get_model():
-    global model
-    if model is None:
-        from ultralytics import YOLO
-        model = YOLO(CONFIG["YOLO_MODEL"])
+    """Return the loaded model or raise if not READY.
+    This does not trigger async loads; callers should call ensure_model_loaded
+    to schedule a load if desired."""
+    global model, model_status
+    if model_status != "READY":
+        raise RuntimeError(f"Model not ready: status={model_status}")
     return model
 
 # Track history for trajectories: veh_id -> deque of (x,y)

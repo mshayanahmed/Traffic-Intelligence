@@ -151,13 +151,31 @@ def api_config():
 # ---------------------------------------------------------------------------
 @bp.route("/health")
 def api_health():
-    model_loaded = bool(getattr(video_processor_module(), "model", None))
+    """Return health information including non-blocking AI model status.
+
+    This endpoint must not synchronously load the model. It reports the
+    status produced by process_video.ensure_model_loaded() which may be one of
+    NOT_LOADED / LOADING / READY / ERROR.
+    """
+    pv = video_processor_module()
+    # Ensure a background load is scheduled so health probes can prompt the
+    # model to start loading without blocking the request.
+    try:
+        pv.ensure_model_loaded(async_load=True)
+    except Exception:
+        # ensure_model_loaded may not be present if an older module variant is
+        # in use; fall back to checking model attribute.
+        pass
+
+    model_status = getattr(pv, "model_status", None) or ("READY" if getattr(pv, "model", None) else "NOT_LOADED")
+    model_error = getattr(pv, "model_error", None)
     active = job_manager.active_job()
     return jsonify({
         "success": True,
         "data": {
             "backend": "Connected",
-            "ai_model": "Loaded" if model_loaded else "Not checked",
+            "ai_model": model_status if model_status else "Not checked",
+            "ai_model_error": model_error,
             "video_processor": "Processing" if active else "Idle",
             "camera": "Inactive",
             "database": "Connected" if job_manager.database_ok() else "Failed",
