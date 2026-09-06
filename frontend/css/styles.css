@@ -80,6 +80,7 @@ body {
   background: var(--bg-canvas);
   transition: background-color .2s ease, color .2s ease;
 }
+html, body { max-width: 100%; overflow-x: hidden; }
 h1, h2, h3 { margin: 0; font-family: var(--font-display); }
 button { font-family: inherit; cursor: pointer; }
 input, select { font-family: inherit; }
@@ -237,12 +238,13 @@ img { max-width: 100%; display: block; }
 
 /* ---------------------------------------------------------------- layout */
 .shell {
-  max-width: 1440px;
+  max-width: 1640px;
   margin: 0 auto;
-  padding: 24px 24px 96px;
+  padding: 22px 26px 96px;
   display: flex;
   flex-direction: column;
   gap: 24px;
+  width: 100%;
 }
 .view { display: none; flex-direction: column; gap: 24px; }
 .view.active { display: flex; animation: viewfade .18s ease-out; }
@@ -460,6 +462,7 @@ img { max-width: 100%; display: block; }
   background: linear-gradient(180deg, rgba(8, 16, 21, 0) 0%, rgba(8, 16, 21, .82) 55%);
   pointer-events: none;
   flex-wrap: wrap;
+  z-index: 6;   /* above feed-frame ::after gradient and the media */
 }
 .hud { flex-direction: column; align-items: stretch; gap: 4px; }
 .hud-top {
@@ -696,8 +699,13 @@ img { max-width: 100%; display: block; }
   color: var(--text-secondary);
   font-size: 13px;
   padding: 16px;
+  /* Solid background + stacking above the ECharts canvas so an empty state
+     can never bleed into, or be hidden by, a previously rendered chart. */
+  background: var(--bg-surface);
+  z-index: 3;
 }
 .empty-state b { font-family: var(--font-display); color: var(--text-primary); font-size: 15px; }
+.empty-state > span { max-width: 320px; line-height: 1.4; }
 
 /* --------------------------------------------------------------- heatmap */
 .heatmap-wrap { position: relative; }
@@ -942,15 +950,93 @@ td.mono, .cell-mono { font-family: var(--font-mono); font-size: 13px; font-weigh
   color: var(--text-primary);
 }
 .field .hint { display: block; font-size: 12px; color: var(--text-tertiary); margin-top: 4px; }
-.class-checks { display: flex; gap: 12px; flex-wrap: wrap; }
+.class-checks-field { grid-column: 1 / -1; }
+.class-checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+  gap: 8px;
+}
 .class-checks label {
-  display: inline-flex; align-items: center; gap: 6px;
+  display: inline-flex; align-items: center; gap: 8px;
   font-size: 13px; font-weight: 400;
   letter-spacing: 0; text-transform: none;
   color: var(--text-primary);
+  padding: 9px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--bg-canvas);
+  cursor: pointer;
+  min-height: 38px;               /* touch-friendly target */
+  user-select: none;
+  transition: border-color .15s ease, background-color .15s ease;
+}
+.class-checks label:hover { border-color: var(--brand-teal); background: var(--tint-teal); }
+.class-checks label:focus-within { outline: 2px solid var(--brand-teal); outline-offset: 1px; }
+.class-checks label:has(input:checked) {
+  border-color: var(--brand-teal);
+  background: var(--tint-teal);
+  color: var(--brand-teal-text);
+  font-weight: 600;
+}
+.class-checks input {
+  accent-color: var(--brand-teal);
+  width: 16px; height: 16px; flex: none;
 }
 .settings-actions { display: flex; align-items: center; gap: 12px; padding: 0 16px 16px; }
 .settings-actions .save-note { font-size: 12px; color: var(--text-secondary); }
+
+/* Account / profile menu - visually consistent with the rest of the UI */
+.account-menu {
+  min-width: 210px;
+  padding: 8px;
+  border-radius: var(--radius-card);
+  box-shadow: 0 12px 32px rgba(8, 16, 21, .28);
+}
+.account-menu .menu-note {
+  padding: 8px 12px 6px;
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 600;
+  line-height: 1.35;
+}
+.account-menu .menu-note small {
+  display: block;
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+  letter-spacing: .02em;
+}
+
+/* Users & roles (admin) table */
+.user-table-wrap { overflow-x: auto; }
+.user-table-wrap table.data td { white-space: nowrap; }
+.user-role-select {
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+.user-role-save {
+  font-size: 12px;
+  padding: 6px 12px;
+  margin-left: 8px;
+}
+.role-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  background: var(--tint-teal);
+  color: var(--brand-teal-text);
+  border: 1px solid transparent;
+}
 
 /* Upload panel */
 .dropzone {
@@ -1081,6 +1167,15 @@ td.mono, .cell-mono { font-family: var(--font-mono); font-size: 13px; font-weigh
   .topbar { padding: 0 12px; gap: 10px; overflow: hidden; }
   .roadway-switch { display: none; }
   .brand { flex: 1; min-width: 0; }
+  /* Overlay toggles are an inline flex row (hardcoded inline style); on small
+     screens that row exceeds the available width and causes real horizontal
+     overflow (390px phones). Give it its own full-width wrapping line. */
+  .controls .overlay-toggles {
+    display: flex !important;
+    flex-wrap: wrap;
+    flex: 1 1 100%;
+    margin-left: 0;
+  }
   .brand-title-row h1 { font-size: 16px; overflow: hidden; text-overflow: ellipsis; }
   .brand-crumb small {
     max-width: 170px;
@@ -1634,6 +1729,7 @@ td.mono, .cell-mono { font-family: var(--font-mono); font-size: 13px; font-weigh
   .metric { flex-basis:82%; }
   .report-metric-row { grid-template-columns:1fr; }
   .detail-kpis { grid-template-columns:1fr; }
+  .tabbar a { min-width: 48px; padding: 6px 4px; font-size: 9px; }
 }
 
 /* ---------- prefers reduced motion ---------- */

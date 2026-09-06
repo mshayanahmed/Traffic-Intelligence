@@ -170,7 +170,7 @@
           <div class="condition">
             <span>Current condition</span>
             <strong id="insightCondition">Unavailable</strong>
-            <small id="insightConditionNote">Derived from frame —</small>
+            <small id="insightConditionNote">Condition unavailable</small>
           </div>
           <div class="insight-grid">
             <div><span>Dominant vehicle</span><b id="insightDominant">—</b></div>
@@ -275,10 +275,11 @@
           <em>all processed observations</em>
         </div>
         <div class="panel-body">
-          <div class="chart-box" id="donutChart"></div>
-          <div id="donutEmpty" class="empty-state hidden">
-            <b>No detection data</b>
-            <span>Run a video to populate the distribution.</span>
+          <div class="chart-box" id="donutChart">
+            <div id="donutEmpty" class="empty-state hidden">
+              <b>No detection data</b>
+              <span>Run a video to populate the distribution.</span>
+            </div>
           </div>
         </div>
         <div id="donutLegend" class="legend"></div>
@@ -293,10 +294,11 @@
           <em>real processed points</em>
         </div>
         <div class="panel-body">
-          <div class="chart-box" id="traceChart"></div>
-          <div id="traceEmpty" class="empty-state hidden">
-            <b>No trace yet</b>
-            <span>Process a video to populate the trace.</span>
+          <div class="chart-box" id="traceChart">
+            <div id="traceEmpty" class="empty-state hidden">
+              <b>No trace yet</b>
+              <span>Process a video to populate the trace.</span>
+            </div>
           </div>
         </div>
         <p class="note">Speed is an estimate derived from configured pixel calibration, not a calibrated roadside measurement.</p>
@@ -566,7 +568,7 @@
             <input id="cfgFps" type="number" step="1" min="1" max="120" required>
             <span class="hint">Used for capture-time and displacement math.</span>
           </div>
-          <div class="field">
+          <div class="field class-checks-field">
             <label>Tracked vehicle classes</label>
             <div class="class-checks" id="classChecks">
               <label><input type="checkbox" value="Car"> Car</label>
@@ -619,6 +621,31 @@
           <span id="settingsSaveNote" class="save-note" role="status"></span>
         </div>
       </form>
+    </article>
+
+    <article class="panel" id="userAdminPanel">
+      <div class="panel-head">
+        <div>
+          <small>ACCESS CONTROL</small>
+          <h3>Users & roles</h3>
+        </div>
+        <span class="badge">ADMIN ONLY</span>
+      </div>
+      <div class="user-table-wrap">
+        <table class="data" id="userTable">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Role</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="userTableBody">
+            <tr><td colspan="3" class="table-empty">Loading users…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Role changes take effect on that user's next sign-in. Administer roles carefully.</p>
     </article>
   </section>
 

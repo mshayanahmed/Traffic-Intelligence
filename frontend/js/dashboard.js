@@ -40,6 +40,8 @@
     sseRetryTimer: null,
     flashTimer: null,
     sourceFps: null,
+    currentUser: null,
+    uploading: false,
   };
 
   /* ------------------------------------------------------------- helpers */
@@ -214,17 +216,28 @@
       statusEl.dataset.locked = "";
       state.lastUpdateAt = state.lastUpdateAt || Date.now();
       setHealth("healthBackend", d.backend, "ok");
-      setHealth("healthModel", d.ai_model,
-        d.ai_model === "Loaded" ? "ok" : (d.ai_model === "Failed" ? "fail" : "idle"));
+
+      // Model lifecycle: Ready / Loading / Error / Not Loaded.
+      var modelState = d.ai_model_status || "not_loaded";
+      var modelLabel = d.ai_model || "Not Loaded";
+      var modelCls = "idle";
+      if (modelState === "ready") modelCls = "ok";
+      else if (modelState === "error") modelCls = "fail";
+      else if (modelState === "loading") modelCls = "idle";
+      setHealth("healthModel", modelLabel, modelCls);
+
       setHealth("healthProcessor", d.video_processor,
         d.video_processor === "Processing" ? "ok" : "idle");
       setHealth("healthCamera", d.camera, d.camera === "Active" ? "ok" : "idle");
       setHealth("healthDatabase", d.database, d.database === "Connected" ? "ok" : "fail");
       $("healthError").classList.add("hidden");
       var failed = [];
-      if (d.database === "Failed") failed.push("Database");
-      if (d.ai_model === "Failed") failed.push("AI model");
-      if (failed.length) showHealthError(failed.join(" and ") + " connection failed. Check Settings and retry.");
+      if (d.database !== "Connected") failed.push("Database");
+      if (modelState === "error") failed.push("AI model");
+      if (failed.length) {
+        var detail = (modelState === "error" && d.ai_model_error) ? " — " + d.ai_model_error : "";
+        showHealthError(failed.join(" and ") + " connection failed." + detail + " Check backend logs and retry.");
+      }
     }).catch(function () {
       $("systemDot").className = "dot offline";
       var statusEl = $("systemStatus");
@@ -246,11 +259,28 @@
     var img = $("videoStream");
     var video = $("completedVideo");
     if (video) { video.pause(); video.classList.add("hidden"); video.removeAttribute("src"); }
+    img.onerror = function () { showFeedError("Live feed unavailable (no processed frames yet)."); };
     img.src = apiUrl("/video_feed?ts=" + Date.now());
     img.classList.remove("hidden");
     $("feedPlaceholder").classList.add("hidden");
     state.feedMode = "live";
     $("downloadProcessedFeedBtn").classList.add("hidden");
+  }
+
+  // Shows an intentional message instead of a silent black screen.
+  function showFeedError(message) {
+    var video = $("completedVideo");
+    var img = $("videoStream");
+    if (video) { video.pause(); video.classList.add("hidden"); video.removeAttribute("src"); }
+    if (img) img.classList.add("hidden");
+    var ph = $("feedPlaceholder");
+    if (ph) {
+      ph.querySelector("b").textContent = "Feed unavailable";
+      var span = ph.querySelector("span");
+      if (span) span.textContent = message || "The processed feed could not be loaded.";
+      ph.classList.remove("hidden");
+    }
+    state.feedMode = "idle";
   }
 
   function enterCompletedMode(sessionId, autoplay) {
@@ -259,14 +289,30 @@
     if (!video) return;
     img.removeAttribute("src");
     img.classList.add("hidden");
-    video.src = apiUrl("/api/sessions/" + encodeURIComponent(sessionId) + "/processed-video");
+    var url = apiUrl("/api/sessions/" + encodeURIComponent(sessionId) + "/processed-video");
+    // Playback error handling: a codec/network failure must never leave a
+    // silent black <video>. We surface an explicit message and offer download.
+    video.onerror = function () {
+      var ph = $("feedPlaceholder");
+      if (ph) {
+        ph.querySelector("b").textContent = "Video could not be played";
+        var span = ph.querySelector("span");
+        if (span) span.textContent = "The processed video may use a codec this browser cannot decode. You can still download the file below.";
+        ph.classList.remove("hidden");
+      }
+      state.feedMode = "idle";
+    };
+    video.oncanplay = function () {
+      $("feedPlaceholder").classList.add("hidden");
+      state.feedMode = "completed";
+    };
+    video.src = url;
     video.classList.remove("hidden");
     $("feedPlaceholder").classList.add("hidden");
-    state.feedMode = "completed";
     state.sessionId = sessionId;
-    var url = apiUrl("/api/sessions/" + encodeURIComponent(sessionId) + "/processed-video?download=1");
+    var dlUrl = apiUrl("/api/sessions/" + encodeURIComponent(sessionId) + "/processed-video?download=1");
     var dl = $("downloadProcessedFeedBtn");
-    dl.href = url;
+    dl.href = dlUrl;
     dl.classList.remove("hidden");
     if (autoplay) {
       var p = video.play();
@@ -408,6 +454,13 @@
   /* ------------------------------------------------------------- upload */
   function uploadVideo(file) {
     if (!file) return;
+    // Block concurrent duplicate uploads: this is a single-request guard so
+    // a double fire from a file input / drag-and-drop can never POST twice.
+    if (state.uploading) {
+      toast("An upload is already in progress. Please wait.", "warn");
+      return;
+    }
+    state.uploading = true;
     var form = new FormData();
     form.append("video", file);
     var xhr = new XMLHttpRequest();
@@ -420,6 +473,7 @@
       }
     });
     xhr.addEventListener("load", function () {
+      state.uploading = false;
       var body = {};
       try { body = JSON.parse(xhr.responseText); } catch (e) { /* noop */ }
       if (xhr.status >= 200 && xhr.status < 300 && body.job_id) {
@@ -439,8 +493,13 @@
       }
     });
     xhr.addEventListener("error", function () {
+      state.uploading = false;
       setFeedBadge("IDLE", "");
       toast("Upload failed — network error.", "error");
+    });
+    xhr.addEventListener("abort", function () {
+      state.uploading = false;
+      setFeedBadge("IDLE", "");
     });
     xhr.send(form);
   }
@@ -498,8 +557,15 @@
         $("reportBadge").textContent = d.verified ? "READY" : "NOT VERIFIED";
         $("reportBadge").className = "badge " + (d.verified ? "teal" : "amber");
         if (!$("insightCondition").dataset.live) {
-          $("insightCondition").textContent = d.traffic_flow === "N/A" ? "Unavailable" : d.traffic_flow;
-          $("insightConditionNote").textContent = "Derived from frame " + d.current_frame;
+          if (d.traffic_flow === "N/A" || !d.traffic_flow) {
+            $("insightCondition").textContent = "Unavailable";
+            $("insightConditionNote").textContent = "Condition unavailable";
+          } else {
+            $("insightCondition").textContent = d.traffic_flow;
+            $("insightConditionNote").textContent = d.current_frame != null
+              ? "Derived from frame " + d.current_frame
+              : "Condition unavailable";
+          }
           $("insightVehicles").textContent = d.current_vehicles;
           $("insightConfidence").textContent = d.average_confidence == null ? "—" : fmtPct(d.average_confidence);
           $("insightViolations").textContent = d.violation_events;
@@ -523,6 +589,10 @@
           "No detection data yet. Upload a roadway video to enable reports.";
         $("reportBadge").textContent = "STANDBY";
         $("reportBadge").className = "badge";
+        if (!$("insightCondition").dataset.live) {
+          $("insightCondition").textContent = "Unavailable";
+          $("insightConditionNote").textContent = "Condition unavailable";
+        }
       }
       delete $("insightCondition").dataset.live;
 
@@ -1196,6 +1266,57 @@
     });
   }
 
+  /* ---------------------------------------------------------- user admin */
+  function loadUsers() {
+    var tbody = $("userTableBody");
+    if (!tbody) return;
+    api("/api/users").then(function (body) {
+      var rows = body.data || [];
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="3" class="table-empty">No users found.</td></tr>';
+        return;
+      }
+      var labels = {
+        admin: "ADMIN", manager: "MANAGER", advanced: "ADVANCED USER", standard: "STANDARD USER"
+      };
+      tbody.innerHTML = rows.map(function (u) {
+        var chip = '<span class="role-chip">' + esc(labels[u.role] || String(u.role).toUpperCase()) + "</span>";
+        var opts = ["admin", "manager", "advanced", "standard"].map(function (r) {
+          var sel = r === u.role ? " selected" : "";
+          return '<option value="' + r + '"' + sel + ">" + esc(labels[r]) + "</option>";
+        }).join("");
+        return "<tr>" +
+          '<td class="mono">' + esc(u.username) + "</td>" +
+          '<td>' + chip + "</td>" +
+          '<td><label class="visually-hidden" for="role-' + esc(u.username) + '">Role for ' + esc(u.username) + '</label>' +
+          '<select id="role-' + esc(u.username) + '" class="user-role-select" aria-label="Role for ' + esc(u.username) + '">' + opts + "</select>" +
+          '<button type="button" class="button user-role-save" data-user="' + esc(u.username) + '">Apply</button></td>' +
+          "</tr>";
+      }).join("");
+      tbody.querySelectorAll(".user-role-save").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var sel = document.getElementById("role-" + btn.getAttribute("data-user"));
+          changeUserRole(btn.getAttribute("data-user"), sel.value);
+        });
+      });
+    }).catch(function (err) {
+      tbody.innerHTML = '<tr><td colspan="3" class="table-empty">Could not load users: ' + esc(err.message) + "</td></tr>";
+    });
+  }
+
+  function changeUserRole(username, role) {
+    api("/api/users/" + encodeURIComponent(username) + "/role", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: role }),
+    }).then(function () {
+      toast("Role for " + username + " updated to " + role.toUpperCase() + ". Applies on next sign-in.", "info");
+      loadUsers();
+    }).catch(function (err) {
+      toast(err.message, "error");
+    });
+  }
+
   /* ---------------------------------------------------------------- wire */
   function wireEvents() {
     $("themeToggle").addEventListener("click", function () {
@@ -1264,7 +1385,7 @@
       $("hudConfidence").textContent = "—";
       $("hudFps").textContent = "—";
       $("insightCondition").textContent = "Unavailable";
-      $("insightConditionNote").textContent = "Derived from frame —";
+      $("insightConditionNote").textContent = "Condition unavailable";
       $("insightCopy").textContent = "Analysis will appear when the detector returns a processed frame.";
       enterIdleMode();
       $("feedPlaceholder").classList.remove("hidden");
@@ -1337,16 +1458,15 @@
     // Account menu.
     var accountBtn = $("accountBtn");
     var accountMenu = $("accountMenu");
+    function setAccountMenu(open) {
+      accountMenu.classList.toggle("hidden", !open);
+      accountBtn.setAttribute("aria-expanded", String(open));
+    }
     accountBtn.addEventListener("click", function (evt) {
       evt.stopPropagation();
-      accountMenu.classList.toggle("hidden");
-      accountBtn.setAttribute("aria-expanded",
-        String(!accountMenu.classList.contains("hidden")));
+      setAccountMenu(accountMenu.classList.contains("hidden"));
     });
-    document.addEventListener("click", function () {
-      accountMenu.classList.add("hidden");
-      accountBtn.setAttribute("aria-expanded", "false");
-    });
+    document.addEventListener("click", function () { setAccountMenu(false); });
     $("logoutBtn").addEventListener("click", function () {
       api("/api/auth/logout", { method: "POST" }).then(function () {
         window.location.href = "/login.html";
@@ -1399,14 +1519,26 @@
     // Roadway switcher (multi-camera-ready placeholder).
     var roadwayBtn = $("roadwayBtn");
     var roadwayMenu = $("roadwayMenu");
+    function setRoadwayMenu(open) {
+      roadwayMenu.classList.toggle("hidden", !open);
+      roadwayBtn.setAttribute("aria-expanded", String(open));
+    }
     roadwayBtn.addEventListener("click", function (evt) {
       evt.stopPropagation();
-      var open = roadwayMenu.classList.toggle("hidden");
-      roadwayBtn.setAttribute("aria-expanded", String(!open));
+      setRoadwayMenu(roadwayMenu.classList.contains("hidden"));
     });
-    document.addEventListener("click", function () {
-      roadwayMenu.classList.add("hidden");
-      roadwayBtn.setAttribute("aria-expanded", "false");
+    document.addEventListener("click", function () { setRoadwayMenu(false); });
+    // Keyboard: ArrowDown/Down opens, Escape closes, focus stays usable.
+    roadwayBtn.addEventListener("keydown", function (evt) {
+      if (evt.key === "ArrowDown" || evt.key === "Enter" || evt.key === " ") {
+        if (roadwayMenu.classList.contains("hidden")) setRoadwayMenu(true);
+      } else if (evt.key === "Escape") {
+        setRoadwayMenu(false);
+        roadwayBtn.focus();
+      }
+    });
+    document.addEventListener("keydown", function (evt) {
+      if (evt.key === "Escape") { setRoadwayMenu(false); setAccountMenu(false); }
     });
   }
 
@@ -1511,9 +1643,19 @@
     wireEvents();
     navigate();
     api("/api/auth/me").then(function (body) {
-      var name = body.data.username;
+      var me = body.data;
+      state.currentUser = me;
+      var name = me.username || "Operator";
       $("accountName").textContent = "Signed in as " + name;
+      $("accountName").innerHTML =
+        "Signed in as <b>" + esc(name) + '</b><small class="menu-sub">' +
+        esc(me.role_label || "") + "</small>";
       $("accountBtn").textContent = name.slice(0, 2).toUpperCase();
+      // Admin-only controls: user/role administration.
+      var isAdmin = me.role === "admin";
+      var userPanel = $("userAdminPanel");
+      if (userPanel) userPanel.classList.toggle("hidden", !isAdmin);
+      if (isAdmin) loadUsers();
     }).catch(function () { /* redirect handled by api() */ });
     // Sync the ONE shared vehicle-type palette with the server pipeline.
     api("/api/config").then(function (body) {
