@@ -59,3 +59,8 @@ npm-debug.log*
 # Keep project docs and source files tracked
 !README.md
 !LICENSE
+/backend/config_overrides.json
+/package.json
+/10
+/scripts/*.txt
+/scripts/*.mp4
