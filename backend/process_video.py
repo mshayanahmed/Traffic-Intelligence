@@ -51,73 +51,113 @@ if os.name == "nt":
             pass
 
 # ---------------------------------------------------------------------------
-# Model - loaded exactly once, with a tracked lifecycle state so the health
-# endpoint can report a HONEST status (Loading / Ready / Error / Not Loaded)
-# instead of forever saying "Not checked".
+# Model lifecycle tracking.
+# Keep both the legacy state dict and the newer uppercase status variables so
+# older callers and current health checks interoperate without losing either
+# side's behavior.
 # ---------------------------------------------------------------------------
 model = None
+model_status = "NOT_LOADED"  # one of: NOT_LOADED, LOADING, READY, ERROR
+model_error = None
 _model_lock = threading.Lock()
-# Single source of truth for model status. Values:
-#   "not_loaded" -> never attempted / intentionally deferred
-#   "loading"    -> initialization in progress
-#   "ready"      -> loaded and usable
-#   "error"       -> failed to initialize (see `error` for the reason)
 _model_state = {"status": "not_loaded", "error": None}
 
 
 def get_model_status():
     """Return a snapshot of the model lifecycle state (thread-safe)."""
     with _model_lock:
-        return dict(_model_state)
+        if model_status in {"NOT_LOADED", "LOADING", "READY", "ERROR"}:
+            status = model_status.lower()
+            error = model_error
+        else:
+            status = _model_state.get("status", "not_loaded")
+            error = _model_state.get("error")
+        return {"status": status, "error": error}
+
+
+def _load_model_blocking():
+    """Blocking model load. Sets model, model_status and model_error."""
+    global model, model_status, model_error
+    try:
+        model_status = "LOADING"
+        _model_state["status"] = "loading"
+        _model_state["error"] = None
+        model_error = None
+        from ultralytics import YOLO
+        model = YOLO(CONFIG["YOLO_MODEL"])
+        model_status = "READY"
+        model_error = None
+        _model_state["status"] = "ready"
+        _model_state["error"] = None
+        logger.info("YOLO model loaded: %s", CONFIG["YOLO_MODEL"])
+    except Exception as exc:
+        model = None
+        model_status = "ERROR"
+        model_error = str(exc)
+        _model_state["status"] = "error"
+        _model_state["error"] = str(exc)
+        logger.exception("Failed to load YOLO model: %s", exc)
+
+
+def ensure_model_loaded(async_load=True):
+    """Ensure model load is scheduled or completed without blocking health checks."""
+    global model_status
+    with _model_lock:
+        if model_status == "READY":
+            return model_status
+        if model_status == "LOADING":
+            return model_status
+        if async_load:
+            model_status = "LOADING"
+            _model_state["status"] = "loading"
+            _model_state["error"] = None
+            thread = threading.Thread(target=_load_model_blocking, name="model-init", daemon=True)
+            thread.start()
+            return model_status
+        _load_model_blocking()
+        return model_status
 
 
 def get_model():
-    """Return the YOLO model, loading it lazily exactly once.
-
-    Updates the shared `_model_state` so the health endpoint can report an
-    accurate state. Raises if the model cannot be loaded - callers (the job
-    runner) already catch this and mark the job as failed, so we never fake a
-    usable model.
-    """
+    """Return the YOLO model, loading it lazily exactly once."""
     global model
     with _model_lock:
         if model is not None:
             return model
-        # If another thread is already loading, report loading and let the
-        # caller retry; do NOT attempt a second concurrent load.
-        if _model_state["status"] == "loading":
+        if model_status == "LOADING":
             raise RuntimeError("Model is currently initializing. Please retry shortly.")
-        if _model_state["status"] == "error":
-            raise RuntimeError("Model failed to initialize: %s" % _model_state.get("error"))
-        _model_state["status"] = "loading"
-        _model_state["error"] = None
+        if model_status == "ERROR":
+            raise RuntimeError("Model failed to initialize: %s" % model_error)
+        if model_status != "READY":
+            model_status = "LOADING"
+            _model_state["status"] = "loading"
+            _model_state["error"] = None
     try:
         from ultralytics import YOLO
         model = YOLO(CONFIG["YOLO_MODEL"])
         with _model_lock:
+            model_status = "READY"
+            model_error = None
             _model_state["status"] = "ready"
             _model_state["error"] = None
         return model
     except Exception as exc:
         logger.warning("YOLO model failed to load: %s", exc)
         with _model_lock:
+            model_status = "ERROR"
+            model_error = str(exc)
             _model_state["status"] = "error"
             _model_state["error"] = str(exc)
         raise
 
 
 def init_model_async():
-    """Kick off background model initialization at startup.
-
-    So the dashboard never reports "Not checked": after boot the model moves
-    through Loading -> Ready (or Error if weights/deps are unavailable).
-    """
+    """Kick off background model initialization at startup."""
     def _worker():
         try:
             get_model()
             logger.info("YOLO model initialized successfully.")
         except Exception:
-            # State already records the error; just log it.
             logger.warning("Background model initialization failed; status recorded as error.")
     threading.Thread(target=_worker, name="model-init", daemon=True).start()
 

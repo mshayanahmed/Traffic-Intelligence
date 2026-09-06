@@ -217,13 +217,14 @@
       state.lastUpdateAt = state.lastUpdateAt || Date.now();
       setHealth("healthBackend", d.backend, "ok");
 
-      // Model lifecycle: Ready / Loading / Error / Not Loaded.
-      var modelState = d.ai_model_status || "not_loaded";
-      var modelLabel = d.ai_model || "Not Loaded";
-      var modelCls = "idle";
-      if (modelState === "ready") modelCls = "ok";
-      else if (modelState === "error") modelCls = "fail";
-      else if (modelState === "loading") modelCls = "idle";
+      var modelState = (d.ai_model_status || d.ai_model || "not_loaded").toLowerCase();
+      var modelStatusRaw = (d.ai_model || "").toUpperCase();
+      var modelLabel = (modelStatusRaw === "READY" || modelStatusRaw === "LOADED") ? "Ready" :
+        (modelStatusRaw === "LOADING" ? "Loading" :
+          (modelStatusRaw === "ERROR" || modelStatusRaw === "FAILED" ? "Error" :
+            (modelStatusRaw === "NOT_LOADED" ? "Not loaded" : (d.ai_model_status ? d.ai_model_status : "Not checked"))));
+      var modelCls = (modelState === "ready" || modelStatusRaw === "READY") ? "ok" :
+        ((modelState === "error" || modelStatusRaw === "ERROR") ? "fail" : "idle");
       setHealth("healthModel", modelLabel, modelCls);
 
       setHealth("healthProcessor", d.video_processor,
@@ -466,14 +467,22 @@
     var xhr = new XMLHttpRequest();
     xhr.open("POST", apiUrl("/api/upload"));
     xhr.withCredentials = true;
+    var progressEl = $("uploadProgress");
+    var progressBar = progressEl ? progressEl.querySelector('.progress-bar i') : null;
+    var progressLabel = $("uploadProgressLabel");
+    if (progressEl) { progressEl.classList.remove('hidden'); if (progressBar) progressBar.style.width = '0%'; if (progressLabel) progressLabel.textContent = 'Uploading…'; }
+
     xhr.upload.addEventListener("progress", function (evt) {
       if (evt.lengthComputable) {
         var pct = Math.round((evt.loaded / evt.total) * 100);
         setFeedBadge("UPLOADING " + pct + "%", "teal");
+        if (progressBar) progressBar.style.width = pct + '%';
+        if (progressLabel) progressLabel.textContent = 'Uploading — ' + pct + '%';
       }
     });
     xhr.addEventListener("load", function () {
       state.uploading = false;
+      try { if (progressBar) progressBar.style.width = '100%'; if (progressLabel) progressLabel.textContent = 'Finalizing…'; } catch (e) {}
       var body = {};
       try { body = JSON.parse(xhr.responseText); } catch (e) { /* noop */ }
       if (xhr.status >= 200 && xhr.status < 300 && body.job_id) {
@@ -487,15 +496,19 @@
         attachLiveStream();
         connectSSE();
         setTimeout(pollJobButtons, 500);
+        // hide progress after short delay
+        setTimeout(function () { if (progressEl) progressEl.classList.add('hidden'); }, 800);
       } else {
         setFeedBadge("IDLE", "");
         toast(body.error || "Upload failed.", "error");
+        if (progressEl) { progressEl.classList.add('hidden'); }
       }
     });
     xhr.addEventListener("error", function () {
       state.uploading = false;
       setFeedBadge("IDLE", "");
       toast("Upload failed — network error.", "error");
+      if (progressEl) { progressEl.classList.add('hidden'); }
     });
     xhr.addEventListener("abort", function () {
       state.uploading = false;
@@ -1347,6 +1360,39 @@
 
     $("startProcessing").addEventListener("click", function () { $("fileInput").click(); });
     $("placeholderUploadBtn").addEventListener("click", function () { $("fileInput").click(); });
+    // File input change -> upload
+    $("fileInput").addEventListener("change", function (evt) {
+      var f = (this.files && this.files[0]) || null;
+      if (f) uploadVideo(f);
+      // reset input so same file can be selected again
+      try { this.value = null; } catch (e) { /* ignore */ }
+    });
+
+    // Drag-and-drop support on the feed frame
+    (function () {
+      var frame = document.querySelector('.feed-frame');
+      var dropzone = $('dropzone');
+      if (!frame || !dropzone) return;
+      function onDragOver(e) { e.preventDefault(); frame.classList.add('dragover'); dropzone.classList.add('visible'); }
+      function onDragLeave(e) { frame.classList.remove('dragover'); dropzone.classList.remove('visible'); }
+      function onDrop(e) {
+        e.preventDefault(); frame.classList.remove('dragover'); dropzone.classList.remove('visible');
+        var files = (e.dataTransfer && e.dataTransfer.files) || [];
+        if (files.length) uploadVideo(files[0]);
+      }
+      frame.addEventListener('dragover', onDragOver);
+      frame.addEventListener('dragenter', onDragOver);
+      frame.addEventListener('dragleave', onDragLeave);
+      frame.addEventListener('drop', onDrop);
+    })();
+
+    // Keyboard: close menus with Escape
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' || e.key === 'Esc') {
+        var am = $('accountMenu'), rb = $('accountBtn'); if (am && !am.classList.contains('hidden')) { am.classList.add('hidden'); if (rb) rb.setAttribute('aria-expanded', 'false'); }
+        var rm = $('roadwayMenu'), rbtn = $('roadwayBtn'); if (rm && !rm.classList.contains('hidden')) { rm.classList.add('hidden'); if (rbtn) rbtn.setAttribute('aria-expanded', 'false'); }
+      }
+    });
     $("fileInput").addEventListener("change", function () {
       if (this.files && this.files[0]) uploadVideo(this.files[0]);
       this.value = "";
@@ -1464,7 +1510,23 @@
     }
     accountBtn.addEventListener("click", function (evt) {
       evt.stopPropagation();
-      setAccountMenu(accountMenu.classList.contains("hidden"));
+      var open = accountMenu.classList.contains("hidden");
+      setAccountMenu(open);
+      if (open) {
+        var first = accountMenu.querySelector('button, [role="menuitem"], [tabindex]');
+        if (first && first.focus) first.focus();
+      }
+    });
+    accountBtn.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setAccountMenu(true);
+        var first = accountMenu.querySelector('button, [role="menuitem"], [tabindex]');
+        if (first && first.focus) first.focus();
+      }
+      if (e.key === 'Escape') {
+        setAccountMenu(false);
+      }
     });
     document.addEventListener("click", function () { setAccountMenu(false); });
     $("logoutBtn").addEventListener("click", function () {
@@ -1525,7 +1587,12 @@
     }
     roadwayBtn.addEventListener("click", function (evt) {
       evt.stopPropagation();
-      setRoadwayMenu(roadwayMenu.classList.contains("hidden"));
+      var open = roadwayMenu.classList.contains("hidden");
+      setRoadwayMenu(open);
+      if (open) {
+        var first = roadwayMenu.querySelector('button, [role="menuitem"], [tabindex]');
+        if (first && first.focus) first.focus();
+      }
     });
     document.addEventListener("click", function () { setRoadwayMenu(false); });
     // Keyboard: ArrowDown/Down opens, Escape closes, focus stays usable.

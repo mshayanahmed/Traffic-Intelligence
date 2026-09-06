@@ -114,6 +114,7 @@ def _public_config():
 
 
 @bp.route("/config", methods=["GET", "PUT"])
+@auth_module.require_role("manager")
 def api_config():
     if request.method == "GET":
         return jsonify({"success": True, "data": _public_config()})
@@ -166,16 +167,47 @@ def api_config():
 # ---------------------------------------------------------------------------
 @bp.route("/health")
 def api_health():
-    status = video_processor.get_model_status()
-    model_label = _MODEL_STATUS_LABELS.get(status["status"], "Not Loaded")
+    """Return health information including non-blocking AI model status.
+
+    This endpoint must not synchronously load the model. It reports the status
+    from the shared model lifecycle state, while keeping legacy keys and labels
+    available for older clients.
+    """
+    pv = video_processor_module()
+    try:
+        pv.ensure_model_loaded(async_load=True)
+    except Exception:
+        pass
+
+    status = None
+    if hasattr(pv, "get_model_status"):
+        try:
+            status = pv.get_model_status()
+        except Exception:
+            status = None
+    if status is None:
+        raw_status = getattr(pv, "model_status", None) or ("READY" if getattr(pv, "model", None) else "NOT_LOADED")
+        status = {"status": str(raw_status).lower(), "error": getattr(pv, "model_error", None)}
+
+    model_status_value = str(status.get("status") or "not_loaded").lower()
+    if model_status_value not in {"not_loaded", "loading", "ready", "error"}:
+        model_status_value = "not_loaded"
+    model_label = _MODEL_STATUS_LABELS.get(model_status_value, "Not Loaded")
+    ai_model_value = {
+        "not_loaded": "NOT_LOADED",
+        "loading": "LOADING",
+        "ready": "READY",
+        "error": "ERROR",
+    }.get(model_status_value, "NOT_LOADED")
+
     active = job_manager.active_job()
     return jsonify({
         "success": True,
         "data": {
             "backend": "Connected",
-            "ai_model": model_label,
-            "ai_model_status": status["status"],
-            "ai_model_error": status.get("error"),
+            "ai_model": ai_model_value,
+            "ai_model_status": model_status_value,
+            "ai_model_error": status.get("error") or getattr(pv, "model_error", None),
             "video_processor": "Processing" if active else "Idle",
             "camera": "Inactive",
             "database": "Connected" if job_manager.database_ok() else "Failed",
