@@ -29,14 +29,25 @@ from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request, Response, send_file, stream_with_context
 
 import analytics
+import auth as auth_module
 import generate_report
 import job_manager
+import process_video as video_processor
 import session_store
 from config import CONFIG
 import live_feed
 from process_video import data_lock
 
 logger = logging.getLogger(__name__)
+
+# Human-readable model-status labels, shared by /api/health and
+# /api/model-status so there is exactly one source of truth.
+_MODEL_STATUS_LABELS = {
+    "not_loaded": "Not Loaded",
+    "loading": "Loading",
+    "ready": "Ready",
+    "error": "Failed",
+}
 
 bp = Blueprint("api", __name__)
 
@@ -107,6 +118,10 @@ def api_config():
     if request.method == "GET":
         return jsonify({"success": True, "data": _public_config()})
 
+    # Only managers (and above) may change runtime configuration.
+    if not auth_module.has_role("manager"):
+        return jsonify({"success": False,
+                        "error": "You do not have permission to modify configuration."}), 403
     payload = request.get_json(silent=True) or {}
     saved = {}
     for key, (cfg_key, caster, lo, hi) in CONFIG_KEYS.items():
@@ -151,13 +166,16 @@ def api_config():
 # ---------------------------------------------------------------------------
 @bp.route("/health")
 def api_health():
-    model_loaded = bool(getattr(video_processor_module(), "model", None))
+    status = video_processor.get_model_status()
+    model_label = _MODEL_STATUS_LABELS.get(status["status"], "Not Loaded")
     active = job_manager.active_job()
     return jsonify({
         "success": True,
         "data": {
             "backend": "Connected",
-            "ai_model": "Loaded" if model_loaded else "Not checked",
+            "ai_model": model_label,
+            "ai_model_status": status["status"],
+            "ai_model_error": status.get("error"),
             "video_processor": "Processing" if active else "Idle",
             "camera": "Inactive",
             "database": "Connected" if job_manager.database_ok() else "Failed",
@@ -169,15 +187,31 @@ def api_health():
     })
 
 
+@bp.route("/model-status")
+def api_model_status():
+    """Single, explicit source of truth for the model lifecycle."""
+    status = video_processor.get_model_status()
+    return jsonify({
+        "success": True,
+        "data": {
+            "status": status["status"],
+            "label": _MODEL_STATUS_LABELS.get(status["status"], "Not Loaded"),
+            "model_path": CONFIG["YOLO_MODEL"],
+            "loaded": status["status"] == "ready",
+            "error": status.get("error"),
+        },
+    })
+
+
 def video_processor_module():
-    import process_video
-    return process_video
+    return video_processor
 
 
 # ---------------------------------------------------------------------------
 # Upload + job lifecycle
 # ---------------------------------------------------------------------------
 @bp.route("/upload", methods=["POST"])
+@auth_module.require_role("advanced")
 def api_upload():
     file = request.files.get("video")
     filename = (file.filename if file is not None else "") or ""
@@ -216,6 +250,30 @@ def api_job_cancel(job_id):
     if result is None:
         return jsonify({"success": False, "error": "Job not found"}), 404
     return jsonify({"success": True, **result})
+
+
+# ---------------------------------------------------------------------------
+# User / role management (admin only)
+# ---------------------------------------------------------------------------
+@bp.route("/users")
+@auth_module.require_role("admin")
+def api_list_users():
+    return jsonify({"success": True, "data": auth_module.list_users()})
+
+
+@bp.route("/users/<username>/role", methods=["PUT"])
+@auth_module.require_role("admin")
+def api_set_user_role(username):
+    payload = request.get_json(silent=True) or {}
+    role = payload.get("role")
+    target = auth_module.get_user_role(username)
+    if target is None:
+        return jsonify({"success": False, "error": "User not found."}), 404
+    if role not in auth_module.ROLES:
+        return jsonify({"success": False,
+                        "error": "Invalid role. Allowed: %s" % ", ".join(auth_module.ROLE_LABELS)}), 400
+    auth_module.set_user_role(username, role)
+    return jsonify({"success": True, "data": auth_module.get_user_role(username)})
 
 
 # ---------------------------------------------------------------------------

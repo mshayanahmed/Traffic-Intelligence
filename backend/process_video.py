@@ -33,17 +33,93 @@ from config import CONFIG
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Model - loaded lazily exactly once.
+# OpenH264 DLL discovery (Windows).
+# OpenCV's `avc1` (H.264) encoder on Windows requires the OpenH264 DLL that is
+# bundled under backend/. Without it the writer silently falls back to `mp4v`
+# (MPEG-4 Part 2), which modern browsers cannot decode - the completed video
+# then renders as a black screen. We register the DLL directory so H.264 is
+# actually used whenever the DLL is present.
+# ---------------------------------------------------------------------------
+if os.name == "nt":
+    _backend_dir = os.path.dirname(os.path.abspath(__file__))
+    if "PATH" not in os.environ or _backend_dir not in os.environ["PATH"]:
+        os.environ["PATH"] = _backend_dir + os.pathsep + os.environ.get("PATH", "")
+    if hasattr(os, "add_dll_directory"):
+        try:
+            os.add_dll_directory(_backend_dir)
+        except OSError:
+            pass
+
+# ---------------------------------------------------------------------------
+# Model - loaded exactly once, with a tracked lifecycle state so the health
+# endpoint can report a HONEST status (Loading / Ready / Error / Not Loaded)
+# instead of forever saying "Not checked".
 # ---------------------------------------------------------------------------
 model = None
+_model_lock = threading.Lock()
+# Single source of truth for model status. Values:
+#   "not_loaded" -> never attempted / intentionally deferred
+#   "loading"    -> initialization in progress
+#   "ready"      -> loaded and usable
+#   "error"       -> failed to initialize (see `error` for the reason)
+_model_state = {"status": "not_loaded", "error": None}
+
+
+def get_model_status():
+    """Return a snapshot of the model lifecycle state (thread-safe)."""
+    with _model_lock:
+        return dict(_model_state)
 
 
 def get_model():
+    """Return the YOLO model, loading it lazily exactly once.
+
+    Updates the shared `_model_state` so the health endpoint can report an
+    accurate state. Raises if the model cannot be loaded - callers (the job
+    runner) already catch this and mark the job as failed, so we never fake a
+    usable model.
+    """
     global model
-    if model is None:
+    with _model_lock:
+        if model is not None:
+            return model
+        # If another thread is already loading, report loading and let the
+        # caller retry; do NOT attempt a second concurrent load.
+        if _model_state["status"] == "loading":
+            raise RuntimeError("Model is currently initializing. Please retry shortly.")
+        if _model_state["status"] == "error":
+            raise RuntimeError("Model failed to initialize: %s" % _model_state.get("error"))
+        _model_state["status"] = "loading"
+        _model_state["error"] = None
+    try:
         from ultralytics import YOLO
         model = YOLO(CONFIG["YOLO_MODEL"])
-    return model
+        with _model_lock:
+            _model_state["status"] = "ready"
+            _model_state["error"] = None
+        return model
+    except Exception as exc:
+        logger.warning("YOLO model failed to load: %s", exc)
+        with _model_lock:
+            _model_state["status"] = "error"
+            _model_state["error"] = str(exc)
+        raise
+
+
+def init_model_async():
+    """Kick off background model initialization at startup.
+
+    So the dashboard never reports "Not checked": after boot the model moves
+    through Loading -> Ready (or Error if weights/deps are unavailable).
+    """
+    def _worker():
+        try:
+            get_model()
+            logger.info("YOLO model initialized successfully.")
+        except Exception:
+            # State already records the error; just log it.
+            logger.warning("Background model initialization failed; status recorded as error.")
+    threading.Thread(target=_worker, name="model-init", daemon=True).start()
 
 # Track history for trajectories: veh_id -> deque of (x,y)
 track_history = {}

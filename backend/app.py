@@ -64,14 +64,19 @@ api_module.load_config_overrides()
 app.register_blueprint(api_module.bp, url_prefix="/api")
 app.register_blueprint(auth_module.bp, url_prefix="/api/auth")
 session_store.init_db()
+# Proactively initialize the YOLO model so system status reports a real
+# lifecycle state (Loading -> Ready/Error) rather than "Not checked".
+video_processor.init_model_async()
 
 
 # ---------------------------------------------------------------------------
 # Authentication gate - everything except the login page, static assets,
-# and auth endpoints requires a signed-in session.
+# and auth endpoints requires a signed-in session. Health/model-status are
+# intentionally public: they are read-only status checks that power the
+# pre-auth "Backend: Connected" indicator and must not 401 on a refresh.
 # ---------------------------------------------------------------------------
 PUBLIC_PREFIXES = ("/login.html", "/css/", "/js/", "/images/", "/favicon.ico",
-                   "/api/auth/")
+                   "/api/auth/", "/api/health", "/api/model-status")
 
 
 @app.before_request
