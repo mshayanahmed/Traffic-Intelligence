@@ -120,7 +120,7 @@ def ensure_model_loaded(async_load=True):
 
 def get_model():
     """Return the YOLO model, loading it lazily exactly once."""
-    global model
+    global model, model_status, model_error
     with _model_lock:
         if model is not None:
             return model
