@@ -97,6 +97,11 @@ def processed_video_path(session_id):
     return None
 
 
+def _output_video_path(session_id):
+    """Return the deterministic requested path used before encoding begins."""
+    return os.path.join(_processed_folder, f"processed_{session_id}.mp4")
+
+
 def evidence_dir(session_id):
     return os.path.join(_evidence_root, str(session_id))
 
@@ -190,7 +195,7 @@ def start_job(video_path, source_filename):
         "ended_at": None,
         "total_frames": _source_total_frames(video_path),
         "fps": _source_fps(video_path),
-        "output_path": processed_video_path(job_id),
+        "output_path": _output_video_path(job_id),
         "processed_video": None,
         "processed_data": [],
         "stop_event": threading.Event(),
