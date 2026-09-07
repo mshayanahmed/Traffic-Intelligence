@@ -88,7 +88,13 @@ def _source_fps(video_path):
 
 
 def processed_video_path(session_id):
-    return os.path.join(_processed_folder, f"processed_{session_id}.mp4")
+    """Return the path to the processed video, checking multiple container formats.
+    The codec fallback may produce .avi (MJPG/XVID) or .mp4 (avc1/mp4v)."""
+    for ext in (".mp4", ".avi"):
+        candidate = os.path.join(_processed_folder, f"processed_{session_id}{ext}")
+        if os.path.exists(candidate) and os.path.getsize(candidate) > 0:
+            return candidate
+    return None
 
 
 def evidence_dir(session_id):
@@ -200,21 +206,24 @@ def start_job(video_path, source_filename):
 def _run_job(job):
     try:
         video_processor.clear_live_buffer()
-        result = process_traffic_video(job["video_path"], job["stop_event"],
+        result, actual_output_path = process_traffic_video(job["video_path"], job["stop_event"],
                                        output_path=job.get("output_path"),
                                        evidence_dir=evidence_dir(job["id"]))
         if not isinstance(result, list):
             result = list(result)
         job["processed_data"] = result
+        # Store the actual output path (may differ from requested if codec fallback changed extension)
+        if actual_output_path:
+            job["actual_output_path"] = actual_output_path
         cancelled = job["stop_event"].is_set()
         job["ended_at"] = time.time()
 
         # Validate the processed output - never present a corrupt file as done.
         frames_written = len({r.get("frame") for r in result})
-        validation = _validate_processed_output(job.get("output_path"), frames_written)
+        validation = _validate_processed_output(actual_output_path or job.get("output_path"), frames_written)
         if validation.get("ok"):
             job["processed_video"] = {
-                "filename": os.path.basename(job["output_path"]),
+                "filename": os.path.basename(actual_output_path or job["output_path"]),
                 "bytes": validation["bytes"],
                 "frames": validation.get("frames"),
                 "codec": validation.get("codec"),
@@ -324,8 +333,14 @@ def live_frames_snapshot(since_frame=-1):
 def get_processed_video_path(session_id):
     """Return the stored processed-video path if it exists and is non-empty.
     Resolves in-memory jobs first, then persisted sessions."""
+    # First check if the job has an actual_output_path recorded
+    job = get_job(session_id)
+    if job and job.get("actual_output_path"):
+        if os.path.exists(job["actual_output_path"]) and os.path.getsize(job["actual_output_path"]) > 0:
+            return job["actual_output_path"]
+    # Fall back to checking both container formats
     path = processed_video_path(session_id)
-    if os.path.exists(path) and os.path.getsize(path) > 0:
+    if path:
         return path
     try:
         meta = session_store.get_session_meta(session_id)

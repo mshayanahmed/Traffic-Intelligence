@@ -209,30 +209,45 @@ def clear_live_buffer():
 
 # ---------------------------------------------------------------------------
 # Output writer - codec chosen by actually opening it locally, never silently.
+# Strategy:
+#   1. avc1 (H.264) - best browser compatibility, requires OpenH264 DLL on Windows
+#      or libx264 on Linux. Works on Windows with the bundled DLL.
+#   2. MJPEG - universally supported, larger files but guaranteed browser playback
+#      in most environments when using .avi container.
+# We prefer avc1 for quality/size, but fall back to MJPEG for maximum compatibility
+# on platforms where H.264 is not available (e.g., Render Linux without OpenH264).
 # ---------------------------------------------------------------------------
-_WRITER_CODEC_CANDIDATES = ("avc1", "mp4v", "XVID")
+_WRITER_CODEC_CANDIDATES = (("avc1", ".mp4"), ("MJPG", ".avi"), ("XVID", ".avi"), ("mp4v", ".mp4"))
 
 
 def _open_writer(output_path, width, height, fps):
     """Open a VideoWriter with the first codec that actually works locally.
-    Returns (writer, fourcc_name) or (None, None) - never a silent failure."""
+    Returns (writer, fourcc_name, actual_path) or (None, None, None).
+
+    The output_path extension may be changed to match the codec container
+    (e.g., .avi for MJPG/XVID). Returns the actual path used.
+    """
     if not output_path:
-        return None, None
+        return None, None, None
     fps = float(fps) if fps and fps >= 1 else float(CONFIG["VIDEO_FPS"])
     size = (int(width), int(height))
-    for fourcc_name in _WRITER_CODEC_CANDIDATES:
+    for fourcc_name, container_ext in _WRITER_CODEC_CANDIDATES:
         try:
+            # Adjust extension to match codec container
+            base_path = os.path.splitext(output_path)[0]
+            actual_path = base_path + container_ext
+
             fourcc = cv2.VideoWriter_fourcc(*fourcc_name)
-            writer = cv2.VideoWriter(output_path, fourcc, fps, size)
+            writer = cv2.VideoWriter(actual_path, fourcc, fps, size)
             if writer.isOpened():
                 logger.info("Processed-video writer opened: %s (%s @ %.1f fps)",
-                            output_path, fourcc_name, fps)
-                return writer, fourcc_name
+                            actual_path, fourcc_name, fps)
+                return writer, fourcc_name, actual_path
             writer.release()
         except Exception as exc:
             logger.warning("VideoWriter codec %s failed: %s", fourcc_name, exc)
     logger.error("No working VideoWriter codec found for %s", output_path)
-    return None, None
+    return None, None, None
 
 
 def _inspect_source(video_path):
@@ -440,15 +455,16 @@ def draw_overlays(frame, detections, track_history=None):
 def process_traffic_video(video_path, stop_event=None, output_path=None, evidence_dir=None):
     """Run the single authoritative pipeline over a video file.
 
-    Returns the per-frame processed data list (also appended to the shared
-    live buffer). The same overlaid frames are published for the live stream
-    and progressively encoded into output_path.
+    Returns a tuple (processed_data, actual_output_path) where:
+    - processed_data is the per-frame list (also appended to the shared live buffer)
+    - actual_output_path is the path to the encoded output file (may differ from
+      output_path if the codec fallback changed the container extension)
     """
     detector = get_model()
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         logger.error("Failed to open video file: %s", video_path)
-        return []
+        return [], None
 
     # Inspect the source (resolution/fps/frame-count) - no inference here.
     source = _inspect_source(video_path)
@@ -461,10 +477,11 @@ def process_traffic_video(video_path, stop_event=None, output_path=None, evidenc
     # processed - never re-encoded in a second pass at the end.
     writer = None
     writer_codec = None
+    actual_output_path = output_path
     if output_path:
-        # Use the source video resolution for output encoding so saved MP4
+        # Use the source video resolution for output encoding so saved video
         # preserves original quality instead of forcing CONFIG size.
-        writer, writer_codec = _open_writer(output_path, source["width"],
+        writer, writer_codec, actual_output_path = _open_writer(output_path, source["width"],
                                             source["height"], source["fps"])
         if writer is None:
             cap.release()
@@ -717,11 +734,11 @@ def process_traffic_video(video_path, stop_event=None, output_path=None, evidenc
         cap.release()
         if writer is not None:
             writer.release()
-            logger.info("Processed video written (%s): %s", writer_codec, output_path)
-        return processed_data_local
+            logger.info("Processed video written (%s): %s", writer_codec, actual_output_path)
+        return processed_data_local, actual_output_path
     except Exception as e:
         logger.exception("Error processing video: %s", e)
         cap.release()
         if writer is not None:
             writer.release()
-        return []
+        return [], None
