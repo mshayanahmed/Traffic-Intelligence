@@ -359,6 +359,7 @@ def issue_otp(identifier, purpose):
             (identifier, purpose, salt, _hash_code(salt, code),
              now + OTP_TTL_SECONDS, OTP_MAX_ATTEMPTS, now))
         conn.commit()
+        logger.info("otp_stored purpose=%s", purpose)
         _audit(identifier, "otp_issued", purpose, None)
         # The plaintext code exists only in this return path (email body).
         return True, code
@@ -622,9 +623,15 @@ def signup():
         conn.close()
 
     _audit(email, "signup", None, None)
+    logger.info("verification_request_received domain=%s", email.rsplit("@", 1)[1])
     ok, result = issue_otp(email, "verify_email")
     if ok:
-        email_service.send_otp_email(email, name, result, "verify_email")
+        delivered = email_service.send_otp_email(email, name, result, "verify_email")
+        if not delivered:
+            return jsonify({
+                "success": False,
+                "error": "Account created, but the verification email could not be sent. Please try again later.",
+            }), 502
     # No session is created here: the user must verify their email and then
     # sign in manually.
     message = ("Account created. We've sent a verification code to your email."
@@ -666,8 +673,13 @@ def resend_verification():
         if user is not None and user["email"] and not user["email_verified"]:
             ok, result = issue_otp(user["email"], "verify_email")
             if ok:
-                email_service.send_otp_email(user["email"], user["name"],
-                                             result, "verify_email")
+                delivered = email_service.send_otp_email(
+                    user["email"], user["name"], result, "verify_email")
+                if not delivered:
+                    return jsonify({
+                        "success": False,
+                        "error": "The verification email could not be sent. Please try again later.",
+                    }), 502
             else:
                 return jsonify({"success": False, "error": result}), 429
     return jsonify({
@@ -840,8 +852,6 @@ def reset_password():
         "success": True,
         "message": "Password updated. Please sign in with your new password.",
     })
-
-
 
 
 

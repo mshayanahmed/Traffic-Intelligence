@@ -20,16 +20,19 @@ Environment variables:
 import logging
 import os
 import smtplib
-import threading
 from email.message import EmailMessage
 
 logger = logging.getLogger(__name__)
 
-_lock = threading.Lock()
-
-
 def _env(name, default=""):
     return (os.environ.get(name) or default).strip()
+
+
+def _masked_recipient(value):
+    local, separator, domain = (value or "").partition("@")
+    if not separator:
+        return "<invalid>"
+    return (local[:1] + "***@" + domain) if local else "***@" + domain
 
 
 def smtp_configured():
@@ -51,42 +54,47 @@ def _app_url():
 
 
 def _send(message):
-    """Send synchronously in a worker thread; never raise, never log secrets."""
+    """Send and report whether the SMTP server accepted every recipient."""
+    recipient = _masked_recipient(message["To"])
     if not smtp_configured():
-        logger.info("Email skipped (SMTP not configured): subject=%r to=%r",
-                    message["Subject"], message["To"])
+        logger.warning("email_send_failed stage=smtp_not_configured to=%s", recipient)
         return False
     host = _env("SMTP_HOST")
-    port = int(_env("SMTP_PORT", "587") or 587)
+    try:
+        port = int(_env("SMTP_PORT", "587") or 587)
+    except ValueError:
+        logger.error("email_send_failed stage=invalid_smtp_port")
+        return False
     user = _env("SMTP_USER")
     password = _env("SMTP_PASSWORD")
     use_ssl = port == 465
 
-    def _deliver():
-        try:
-            if use_ssl:
-                server = smtplib.SMTP_SSL(host, port, timeout=20)
-            else:
-                server = smtplib.SMTP(host, port, timeout=20)
-            with server:
-                server.ehlo()
-                if not use_ssl:
-                    try:
-                        server.starttls()
-                        server.ehlo()
-                    except smtplib.SMTPNotSupportedError:
-                        pass
-                if user:
-                    server.login(user, password)
-                server.send_message(message)
-            logger.info("Email sent: subject=%r to=%r", message["Subject"], message["To"])
-        except Exception:
-            logger.exception("Email delivery failed (subject=%r to=%r)",
-                             message["Subject"], message["To"])
-
-    # Fire-and-forget so login/signup responses never block on SMTP.
-    threading.Thread(target=_deliver, daemon=True).start()
-    return True
+    logger.info("email_send_started to=%s", recipient)
+    try:
+        logger.info("smtp_connection_started host=%s port=%s", host, port)
+        if use_ssl:
+            server = smtplib.SMTP_SSL(host, port, timeout=20)
+        else:
+            server = smtplib.SMTP(host, port, timeout=20)
+        with server:
+            server.ehlo()
+            if not use_ssl:
+                try:
+                    server.starttls()
+                    server.ehlo()
+                except smtplib.SMTPNotSupportedError:
+                    logger.warning("smtp_starttls_unavailable host=%s port=%s", host, port)
+            if user:
+                server.login(user, password)
+            refused = server.send_message(message)
+        if refused:
+            logger.error("email_send_failed stage=smtp_recipient_rejected to=%s", recipient)
+            return False
+        logger.info("smtp_send_completed to=%s", recipient)
+        return True
+    except (OSError, smtplib.SMTPException):
+        logger.exception("email_send_failed stage=smtp_delivery to=%s", recipient)
+        return False
 
 
 def _message(to, subject, body):
