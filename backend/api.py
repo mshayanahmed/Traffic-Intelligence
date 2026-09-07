@@ -114,9 +114,17 @@ def _public_config():
 
 
 @bp.route("/config", methods=["GET", "PUT"])
-@auth_module.require_role("manager")
 def api_config():
+    """Runtime configuration.
+
+    GET is available to every authenticated user: the frontend bootstraps its
+    shared class palette from here and the payload contains only safe,
+    non-sensitive tuning values (no secrets, credentials or internal paths).
+    PUT stays restricted to managers and above.
+    """
     if request.method == "GET":
+        if not auth_module.current_username():
+            return jsonify({"success": False, "error": "Sign in required."}), 401
         return jsonify({"success": True, "data": _public_config()})
 
     # Only managers (and above) may change runtime configuration.
@@ -287,13 +295,20 @@ def api_job_cancel(job_id):
 # ---------------------------------------------------------------------------
 # User / role management (admin only)
 # ---------------------------------------------------------------------------
-@bp.route("/users")
+@bp.route("/admin/users")
 @auth_module.require_role("admin")
 def api_list_users():
     return jsonify({"success": True, "data": auth_module.list_users()})
 
 
-@bp.route("/users/<username>/role", methods=["PUT"])
+@bp.route("/users")
+@auth_module.require_role("admin")
+def api_list_users_legacy():
+    """Backwards-compatible alias for /api/admin/users."""
+    return api_list_users()
+
+
+@bp.route("/admin/users/<username>/role", methods=["PUT"])
 @auth_module.require_role("admin")
 def api_set_user_role(username):
     payload = request.get_json(silent=True) or {}
@@ -304,8 +319,94 @@ def api_set_user_role(username):
     if role not in auth_module.ROLES:
         return jsonify({"success": False,
                         "error": "Invalid role. Allowed: %s" % ", ".join(auth_module.ROLE_LABELS)}), 400
-    auth_module.set_user_role(username, role)
+    if username == auth_module.current_username() and role != "admin":
+        return jsonify({"success": False,
+                        "error": "You cannot change your own admin role."}), 400
+    if not auth_module.set_user_role(username, role):
+        return jsonify({"success": False,
+                        "error": ("The admin role requires an email on the "
+                                  "admin domain (%s)." %
+                                  auth_module.ADMIN_EMAIL_DOMAIN)}), 400
     return jsonify({"success": True, "data": auth_module.get_user_role(username)})
+
+
+@bp.route("/users/<username>/role", methods=["PUT"])
+@auth_module.require_role("admin")
+def api_set_user_role_legacy(username):
+    """Backwards-compatible alias for /api/admin/users/<username>/role."""
+    return api_set_user_role(username)
+
+
+@bp.route("/admin/users/<username>/status", methods=["PUT"])
+@auth_module.require_role("admin")
+def api_set_user_status(username):
+    payload = request.get_json(silent=True) or {}
+    status = payload.get("status")
+    if auth_module.get_user_role(username) is None:
+        return jsonify({"success": False, "error": "User not found."}), 404
+    if username == auth_module.current_username():
+        return jsonify({"success": False,
+                        "error": "You cannot change your own account status."}), 400
+    if not auth_module.set_account_status(username, status):
+        return jsonify({"success": False,
+                        "error": "Invalid status. Allowed: active, disabled."}), 400
+    row = auth_module.get_user_by_identifier(username)
+    return jsonify({"success": True,
+                    "data": auth_module._safe_user_row(row)})
+
+
+@bp.route("/admin/users/<username>/resend-verification", methods=["POST"])
+@auth_module.require_role("admin")
+def api_admin_resend_verification(username):
+    row = auth_module.get_user_by_identifier(username)
+    if row is None or not row["email"]:
+        return jsonify({"success": False,
+                        "error": "User not found or has no email."}), 404
+    if row["email_verified"]:
+        return jsonify({"success": False,
+                        "error": "This user's email is already verified."}), 400
+    ok, result = auth_module.issue_otp(row["email"], "verify_email")
+    if not ok:
+        return jsonify({"success": False, "error": result}), 429
+    import email_service
+    email_service.send_otp_email(row["email"], row["name"], result, "verify_email")
+    return jsonify({"success": True, "message": "Verification email sent."})
+
+
+@bp.route("/admin/overview")
+@auth_module.require_role("admin")
+def api_admin_overview():
+    """Admin dashboard overview: user stats + system/model status."""
+    users = auth_module.list_users()
+    total = len(users)
+    verified = sum(1 for u in users if u["email_verified"])
+    disabled = sum(1 for u in users if u["account_status"] == "disabled")
+    admins = sum(1 for u in users if u["role"] == "admin")
+    try:
+        status = video_processor.get_model_status()
+    except Exception:
+        status = {"status": "unknown"}
+    return jsonify({"success": True, "data": {
+        "users_total": total,
+        "users_verified": verified,
+        "users_unverified": total - verified,
+        "users_disabled": disabled,
+        "users_admins": admins,
+        "model_status": _MODEL_STATUS_LABELS.get(status.get("status"),
+                                                 "Unknown"),
+        "processing": bool(job_manager.active_job()),
+    }})
+
+
+@bp.route("/admin/audit-logs")
+@auth_module.require_role("admin")
+def api_admin_audit_logs():
+    try:
+        limit = min(int(request.args.get("limit", 100)), 500)
+    except (TypeError, ValueError):
+        limit = 100
+    return jsonify({"success": True, "data": auth_module.list_audit_logs(limit)})
+
 
 
 # ---------------------------------------------------------------------------

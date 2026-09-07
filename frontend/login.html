@@ -59,15 +59,27 @@
     color: var(--text-primary);
   }
   .field input:focus { outline: 2px solid var(--brand-teal); outline-offset: -1px; }
-  #authSubmit { width: 100%; padding: 11px; font-weight: 600; }
+  .auth-actions button[type=submit] { width: 100%; padding: 11px; font-weight: 600; }
   .auth-switch { text-align: center; font-size: 13px; color: var(--text-secondary); }
-  .auth-switch button {
+  .auth-switch button, .auth-links button {
     background: none; border: 0;
     color: var(--brand-teal-text);
     font-size: 13px; font-weight: 600;
     cursor: pointer;
   }
-  #authError {
+  .auth-links { display: flex; justify-content: space-between; font-size: 13px; }
+  .auth-step { display: none; }
+  .auth-step.active { display: flex; flex-direction: column; gap: 14px; }
+  #authMessage {
+    display: none;
+    padding: 10px 12px;
+    border-radius: var(--radius-control);
+    background: rgba(36,192,192,.12);
+    color: #24C0C0;
+    font-size: 13px;
+    border-left: 3px solid #24C0C0;
+  }
+  .error-box {
     display: none;
     padding: 10px 12px;
     border-radius: var(--radius-control);
@@ -82,6 +94,8 @@
     font-size: 12px;
     color: #8FA3A6;
   }
+  .auth-sub { font-size: 13px; color: var(--text-secondary); margin: 0; }
+  .hint { font-size: 11px; color: var(--text-secondary); }
 </style>
 </head>
 <body>
@@ -95,20 +109,108 @@
         <h1 id="authTitle">Sign in</h1>
       </div>
     </div>
-    <form class="auth-body" id="authForm">
-      <div id="authError" role="alert"></div>
+
+    <!-- STEP: login -->
+    <form class="auth-body auth-step active" id="step-login">
+      <div id="authError" class="error-box" role="alert"></div>
+      <div id="authMessage" role="status"></div>
       <div class="field">
-        <label for="username">Username</label>
-        <input id="username" type="text" autocomplete="username" required minlength="3">
+        <label for="loginEmail">Email or username</label>
+        <input id="loginEmail" type="text" autocomplete="username" required>
       </div>
       <div class="field">
-        <label for="password">Password</label>
-        <input id="password" type="password" autocomplete="current-password" required minlength="6">
+        <label for="loginPassword">Password</label>
+        <input id="loginPassword" type="password" autocomplete="current-password" required>
       </div>
-      <button id="authSubmit" class="button primary" type="submit">Sign in</button>
+      <div class="auth-actions"><button class="button primary" type="submit">Sign in</button></div>
+      <div class="auth-links">
+        <button type="button" id="gotoForgot">Forgot password?</button>
+        <button type="button" id="gotoSignup">Create account</button>
+      </div>
+      <div class="auth-links" id="unverifiedActions" style="display:none">
+        <button type="button" id="gotoVerify">Verify your email</button>
+        <button type="button" id="resendFromLogin">Resend verification code</button>
+      </div>
+    </form>
+
+    <!-- STEP: signup -->
+    <form class="auth-body auth-step" id="step-signup">
+      <p class="auth-sub">Create your Traffic Intelligence account. We'll email you a verification code.</p>
+      <div id="signupError" class="error-box" role="alert"></div>
+      <div class="field">
+        <label for="signupName">Full name</label>
+        <input id="signupName" type="text" autocomplete="name" required minlength="2">
+      </div>
+      <div class="field">
+        <label for="signupEmail">Email</label>
+        <input id="signupEmail" type="email" autocomplete="email" required>
+      </div>
+      <div class="field">
+        <label for="signupPassword">Password</label>
+        <input id="signupPassword" type="password" autocomplete="new-password" required minlength="8">
+        <span class="hint">At least 8 characters with a letter and a number.</span>
+      </div>
+      <div class="field">
+        <label for="signupConfirm">Confirm password</label>
+        <input id="signupConfirm" type="password" autocomplete="new-password" required minlength="8">
+      </div>
+      <div class="auth-actions"><button class="button primary" type="submit">Create account</button></div>
       <div class="auth-switch">
-        <span id="switchLabel">No account yet?</span>
-        <button type="button" id="switchMode">Create one</button>
+        <span>Already have an account?</span>
+        <button type="button" id="backToLogin1">Sign in</button>
+      </div>
+    </form>
+
+    <!-- STEP: OTP verification -->
+    <form class="auth-body auth-step" id="step-verify">
+      <p class="auth-sub" id="verifySubtitle">Enter the verification code we emailed you.</p>
+      <div id="verifyError" class="error-box" role="alert"></div>
+      <div class="field">
+        <label for="verifyCode">Verification code</label>
+        <input id="verifyCode" type="text" inputmode="numeric" autocomplete="one-time-code" required maxlength="8">
+      </div>
+      <div class="auth-actions"><button class="button primary" type="submit">Verify email</button></div>
+      <div class="auth-switch">
+        <button type="button" id="resendCode">Resend verification code</button>
+      </div>
+      <div class="auth-switch">
+        <button type="button" id="backToLogin2">Back to sign in</button>
+      </div>
+    </form>
+
+    <!-- STEP: forgot password -->
+    <form class="auth-body auth-step" id="step-forgot">
+      <p class="auth-sub">Enter your email and we'll send a password reset code.</p>
+      <div id="forgotError" class="error-box" role="alert"></div>
+      <div class="field">
+        <label for="forgotEmail">Email</label>
+        <input id="forgotEmail" type="email" autocomplete="email" required>
+      </div>
+      <div class="auth-actions"><button class="button primary" type="submit">Send reset code</button></div>
+      <div class="auth-switch">
+        <button type="button" id="backToLogin3">Back to sign in</button>
+      </div>
+    </form>
+
+    <!-- STEP: reset password -->
+    <form class="auth-body auth-step" id="step-reset">
+      <p class="auth-sub">Enter the reset code and your new password.</p>
+      <div id="resetError" class="error-box" role="alert"></div>
+      <div class="field">
+        <label for="resetCode">Reset code</label>
+        <input id="resetCode" type="text" inputmode="numeric" required maxlength="8">
+      </div>
+      <div class="field">
+        <label for="resetPassword">New password</label>
+        <input id="resetPassword" type="password" autocomplete="new-password" required minlength="8">
+      </div>
+      <div class="field">
+        <label for="resetConfirm">Confirm new password</label>
+        <input id="resetConfirm" type="password" autocomplete="new-password" required minlength="8">
+      </div>
+      <div class="auth-actions"><button class="button primary" type="submit">Set new password</button></div>
+      <div class="auth-switch">
+        <button type="button" id="backToLogin4">Back to sign in</button>
       </div>
     </form>
   </div>
@@ -119,58 +221,198 @@
 <script>
 (function () {
   "use strict";
-  var mode = "login";
-  var title = document.getElementById("authTitle");
-  var submit = document.getElementById("authSubmit");
-  var switchBtn = document.getElementById("switchMode");
-  var switchLabel = document.getElementById("switchLabel");
-  var errorBox = document.getElementById("authError");
+  var pendingEmail = "";
 
-  function setMode(next) {
-    mode = next;
-    if (mode === "login") {
-      title.textContent = "Sign in";
-      submit.textContent = "Sign in";
-      switchLabel.textContent = "No account yet?";
-      switchBtn.textContent = "Create one";
-    } else {
-      title.textContent = "Create account";
-      submit.textContent = "Sign up";
-      switchLabel.textContent = "Already have an account?";
-      switchBtn.textContent = "Sign in instead";
-    }
-    errorBox.style.display = "none";
+  function $(id) { return document.getElementById(id); }
+  function show(step) {
+    document.querySelectorAll(".auth-step").forEach(function (el) {
+      el.classList.toggle("active", el.id === "step-" + step);
+    });
+    var titles = { login: "Sign in", signup: "Create account",
+                   verify: "Verify your email", forgot: "Forgot password",
+                   reset: "Set a new password" };
+    $("authTitle").textContent = titles[step] || "Sign in";
   }
-
-  switchBtn.addEventListener("click", function () {
-    setMode(mode === "login" ? "signup" : "login");
-  });
-
-  document.getElementById("authForm").addEventListener("submit", function (evt) {
-    evt.preventDefault();
-    errorBox.style.display = "none";
-    submit.disabled = true;
-    fetch(window.tiApiUrl("/api/auth/" + mode), {
+  function showError(boxId, message) {
+    var box = $(boxId);
+    box.textContent = message;
+    box.style.display = "block";
+  }
+  function clearBoxes() {
+    ["authError", "signupError", "verifyError", "forgotError", "resetError"]
+      .forEach(function (id) { $(id).style.display = "none"; });
+    $("authMessage").style.display = "none";
+  }
+  function post(path, body) {
+    return fetch(window.tiApiUrl("/api/auth/" + path), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({
-        username: document.getElementById("username").value,
-        password: document.getElementById("password").value,
-      }),
+      body: JSON.stringify(body || {}),
     }).then(function (resp) {
-      return resp.json().then(function (body) {
-        if (!resp.ok || body.success === false) throw new Error(body.error || "Failed.");
-        window.location.href = "/";
+      return resp.json().then(function (data) {
+        return { ok: resp.ok, status: resp.status, body: data };
       });
-    }).catch(function (err) {
-      errorBox.textContent = err.message;
-      errorBox.style.display = "block";
-    }).finally(function () {
-      submit.disabled = false;
     });
+  }
+  function showInfo(message) {
+    var box = $("authMessage");
+    box.textContent = message;
+    box.style.display = "block";
+    show("login");
+  }
+
+  /* ---- login ---- */
+  $("step-login").addEventListener("submit", function (evt) {
+    evt.preventDefault();
+    clearBoxes();
+    $("unverifiedActions").style.display = "none";
+    var btn = evt.target.querySelector("button[type=submit]");
+    btn.disabled = true;
+    post("login", {
+      email: $("loginEmail").value,
+      username: $("loginEmail").value,
+      password: $("loginPassword").value,
+    }).then(function (res) {
+      if (res.ok && res.body.success) {
+        window.location.href = "/";
+        return;
+      }
+      if (res.body.code === "email_unverified") {
+        pendingEmail = (res.body.data && res.body.data.email) || $("loginEmail").value;
+        showError("authError", "Please verify your email before signing in.");
+        $("unverifiedActions").style.display = "flex";
+        return;
+      }
+      showError("authError", res.body.error || "Sign in failed.");
+    }).catch(function () {
+      showError("authError", "Network error. Please try again.");
+    }).finally(function () { btn.disabled = false; });
   });
+
+  /* ---- signup ---- */
+  $("step-signup").addEventListener("submit", function (evt) {
+    evt.preventDefault();
+    clearBoxes();
+    if ($("signupPassword").value !== $("signupConfirm").value) {
+      showError("signupError", "Passwords do not match.");
+      return;
+    }
+    var btn = evt.target.querySelector("button[type=submit]");
+    btn.disabled = true;
+    post("signup", {
+      name: $("signupName").value,
+      email: $("signupEmail").value,
+      password: $("signupPassword").value,
+      confirm_password: $("signupConfirm").value,
+    }).then(function (res) {
+      if (!res.ok || res.body.success === false) {
+        showError("signupError", res.body.error || "Sign up failed.");
+        return;
+      }
+      pendingEmail = $("signupEmail").value;
+      show("verify");
+      $("verifySubtitle").textContent =
+        "We sent a verification code to " + pendingEmail + ".";
+    }).catch(function () {
+      showError("signupError", "Network error. Please try again.");
+    }).finally(function () { btn.disabled = false; });
+  });
+
+  /* ---- OTP verification ---- */
+  $("step-verify").addEventListener("submit", function (evt) {
+    evt.preventDefault();
+    $("verifyError").style.display = "none";
+    var btn = evt.target.querySelector("button[type=submit]");
+    btn.disabled = true;
+    post("verify-email", { email: pendingEmail, code: $("verifyCode").value })
+      .then(function (res) {
+        if (!res.ok || res.body.success === false) {
+          showError("verifyError", res.body.error || "Verification failed.");
+          return;
+        }
+        showInfo("Email verified successfully. Please sign in.");
+      })
+      .catch(function () { showError("verifyError", "Network error."); })
+      .finally(function () { btn.disabled = false; });
+  });
+
+  function resendVerification() {
+    $("verifyError").style.display = "none";
+    post("resend-verification", { email: pendingEmail }).then(function (res) {
+      if (!res.ok || res.body.success === false) {
+        showError("verifyError", res.body.error || "Could not resend the code.");
+      } else {
+        showInfo("If a verification code can be sent, it is on its way.");
+      }
+    });
+  }
+  $("resendCode").addEventListener("click", resendVerification);
+  $("resendFromLogin").addEventListener("click", function () {
+    pendingEmail = $("loginEmail").value;
+    resendVerification();
+  });
+
+  /* ---- forgot / reset ---- */
+  $("step-forgot").addEventListener("submit", function (evt) {
+    evt.preventDefault();
+    $("forgotError").style.display = "none";
+    var btn = evt.target.querySelector("button[type=submit]");
+    btn.disabled = true;
+    post("forgot-password", { email: $("forgotEmail").value })
+      .then(function (res) {
+        if (!res.ok || res.body.success === false) {
+          showError("forgotError", res.body.error || "Could not send a reset code.");
+          return;
+        }
+        pendingEmail = $("forgotEmail").value;
+        show("reset");
+      })
+      .catch(function () { showError("forgotError", "Network error."); })
+      .finally(function () { btn.disabled = false; });
+  });
+
+  $("step-reset").addEventListener("submit", function (evt) {
+    evt.preventDefault();
+    $("resetError").style.display = "none";
+    if ($("resetPassword").value !== $("resetConfirm").value) {
+      showError("resetError", "Passwords do not match.");
+      return;
+    }
+    var btn = evt.target.querySelector("button[type=submit]");
+    btn.disabled = true;
+    post("reset-password", {
+      email: pendingEmail,
+      code: $("resetCode").value,
+      new_password: $("resetPassword").value,
+      confirm_password: $("resetConfirm").value,
+    }).then(function (res) {
+      if (!res.ok || res.body.success === false) {
+        showError("resetError", res.body.error || "Password reset failed.");
+        return;
+      }
+      showInfo(res.body.message || "Password updated. Please sign in.");
+    }).catch(function () { showError("resetError", "Network error."); })
+      .finally(function () { btn.disabled = false; });
+  });
+
+  /* ---- navigation ---- */
+  $("gotoSignup").addEventListener("click", function () { clearBoxes(); show("signup"); });
+  $("gotoForgot").addEventListener("click", function () { clearBoxes(); show("forgot"); });
+  $("gotoVerify").addEventListener("click", function () {
+    pendingEmail = $("loginEmail").value;
+    clearBoxes(); show("verify");
+    $("verifySubtitle").textContent =
+      "We sent a verification code to " + (pendingEmail || "your email") + ".";
+  });
+  ["backToLogin1", "backToLogin2", "backToLogin3", "backToLogin4"]
+    .forEach(function (id) {
+      $(id).addEventListener("click", function () { clearBoxes(); show("login"); });
+    });
+
+
 })();
 </script>
+
 </body>
 </html>

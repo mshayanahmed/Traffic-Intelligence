@@ -132,7 +132,7 @@
 
   /* ------------------------------------------------------------ routing */
   var VIEWS = ["live", "camera", "overview", "heatmap", "violations", "evidence",
-               "reports", "sessions", "settings"];
+               "reports", "sessions", "settings", "admin"];
 
   function currentRoute() {
     var hash = location.hash.replace(/^#\/?/, "");
@@ -141,6 +141,14 @@
 
   function navigate() {
     var route = currentRoute();
+    // Server-side enforced role: only admins may open the admin view. A
+    // normal user (or someone without a session) is redirected instead of
+    // being able to reach /#/admin by typing the URL.
+    if (route === "admin" && !(state.currentUser && state.currentUser.role === "admin")) {
+      window.location.hash = "#/live";
+      toast("Access denied. Administrator privileges required.", "error");
+      return;
+    }
     VIEWS.forEach(function (name) {
       var view = $("view-" + name);
       if (view) view.classList.toggle("active", name === route);
@@ -157,6 +165,7 @@
     if (route === "sessions") { loadSessions(); }
     if (route === "settings") { loadSettings(); }
     if (route === "reports") { refreshReportLinks(); }
+    if (route === "admin") { loadAdminOverview(); loadAdminUsers(); loadAdminAudit(); }
   }
   window.addEventListener("hashchange", navigate);
 
@@ -530,7 +539,7 @@
   /* ------------------------------------------------------- data loading */
   function refreshAll() {
     loadSummary();
-    loadHeatmap();
+    fetchHeatmap();   // fixed: refreshAll previously called a non-existent function
     loadViolations();
     loadVehicles();
     loadSessions();
@@ -1280,55 +1289,166 @@
   }
 
   /* ---------------------------------------------------------- user admin */
-  function loadUsers() {
-    var tbody = $("userTableBody");
+  function fmtTs(ts) {
+    if (!ts) return "—";
+    try { return new Date(ts * 1000).toLocaleString(); } catch (e) { return "—"; }
+  }
+
+  function loadAdminOverview() {
+    api("/api/admin/overview").then(function (body) {
+      var d = body.data || {};
+      $("adminUsersTotal").textContent = d.users_total != null ? d.users_total : "—";
+      $("adminUsersVerified").textContent = d.users_verified != null ? d.users_verified : "—";
+      $("adminUsersUnverified").textContent = d.users_unverified != null ? d.users_unverified : "—";
+      $("adminUsersDisabled").textContent = d.users_disabled != null ? d.users_disabled : "—";
+      $("adminUsersAdmins").textContent = d.users_admins != null ? d.users_admins : "—";
+      $("adminModelStatus").textContent = d.model_status || "—";
+    }).catch(function (err) { toast(err.message, "error"); });
+  }
+
+  function loadAdminUsers() {
+    var tbody = $("adminUserTableBody");
     if (!tbody) return;
-    api("/api/users").then(function (body) {
+    api("/api/admin/users").then(function (body) {
       var rows = body.data || [];
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="3" class="table-empty">No users found.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="table-empty">No users found.</td></tr>';
         return;
       }
       var labels = {
         admin: "ADMIN", manager: "MANAGER", advanced: "ADVANCED USER", standard: "STANDARD USER"
       };
       tbody.innerHTML = rows.map(function (u) {
-        var chip = '<span class="role-chip">' + esc(labels[u.role] || String(u.role).toUpperCase()) + "</span>";
-        var opts = ["admin", "manager", "advanced", "standard"].map(function (r) {
+        var roleOpts = ["admin", "manager", "advanced", "standard"].map(function (r) {
           var sel = r === u.role ? " selected" : "";
           return '<option value="' + r + '"' + sel + ">" + esc(labels[r]) + "</option>";
         }).join("");
+        var disabled = u.account_status === "disabled";
+        var statusChip = '<span class="role-chip">' + esc((u.account_status || "active").toUpperCase()) + "</span>";
+        var verifyChip = u.email_verified
+          ? '<span class="role-chip">VERIFIED</span>'
+          : '<span class="badge amber">UNVERIFIED</span>';
+        var actions =
+          '<div class="admin-user-actions">' +
+          '<select class="user-role-select" data-user="' + esc(u.username) + '" aria-label="Role for ' + esc(u.username) + '">' + roleOpts + "</select>" +
+          '<button type="button" class="button admin-role-save" data-user="' + esc(u.username) + '">Apply role</button>' +
+          '<button type="button" class="button admin-status-toggle" data-user="' + esc(u.username) + '" data-next="' + (disabled ? "active" : "disabled") + '">' + (disabled ? "Enable" : "Disable") + "</button>" +
+          (!u.email_verified ? '<button type="button" class="button admin-resend-verify" data-user="' + esc(u.username) + '">Send verification</button>' : "") +
+          "</div>";
         return "<tr>" +
-          '<td class="mono">' + esc(u.username) + "</td>" +
-          '<td>' + chip + "</td>" +
-          '<td><label class="visually-hidden" for="role-' + esc(u.username) + '">Role for ' + esc(u.username) + '</label>' +
-          '<select id="role-' + esc(u.username) + '" class="user-role-select" aria-label="Role for ' + esc(u.username) + '">' + opts + "</select>" +
-          '<button type="button" class="button user-role-save" data-user="' + esc(u.username) + '">Apply</button></td>' +
+          "<td>" + esc(u.name) + "</td>" +
+          '<td class="mono">' + esc(u.email || u.username) + "</td>" +
+          "<td>" + esc(labels[u.role] || String(u.role).toUpperCase()) + "</td>" +
+          "<td>" + verifyChip + "</td>" +
+          "<td>" + statusChip + "</td>" +
+          "<td>" + fmtTs(u.created_at) + "</td>" +
+          "<td>" + fmtTs(u.last_login_at) + "</td>" +
+          "<td>" + actions + "</td>" +
           "</tr>";
       }).join("");
-      tbody.querySelectorAll(".user-role-save").forEach(function (btn) {
+      tbody.querySelectorAll(".admin-role-save").forEach(function (btn) {
         btn.addEventListener("click", function () {
-          var sel = document.getElementById("role-" + btn.getAttribute("data-user"));
+          var sel = tbody.querySelector('select.user-role-select[data-user="' +
+            CSS.escape(btn.getAttribute("data-user")) + '"]');
           changeUserRole(btn.getAttribute("data-user"), sel.value);
         });
       });
+      tbody.querySelectorAll(".admin-status-toggle").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          setAccountStatus(btn.getAttribute("data-user"), btn.getAttribute("data-next"));
+        });
+      });
+      tbody.querySelectorAll(".admin-resend-verify").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var user = btn.getAttribute("data-user");
+          api("/api/admin/users/" + encodeURIComponent(user) + "/resend-verification", { method: "POST" })
+            .then(function () { toast("Verification email sent to " + user + ".", "info"); })
+            .catch(function (err) { toast(err.message, "error"); });
+        });
+      });
+
     }).catch(function (err) {
-      tbody.innerHTML = '<tr><td colspan="3" class="table-empty">Could not load users: ' + esc(err.message) + "</td></tr>";
+      tbody.innerHTML = '<tr><td colspan="8" class="table-empty">Could not load users: ' + esc(err.message) + "</td></tr>";
     });
   }
 
   function changeUserRole(username, role) {
-    api("/api/users/" + encodeURIComponent(username) + "/role", {
+    api("/api/admin/users/" + encodeURIComponent(username) + "/role", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role: role }),
     }).then(function () {
       toast("Role for " + username + " updated to " + role.toUpperCase() + ". Applies on next sign-in.", "info");
-      loadUsers();
+      loadAdminUsers();
+      loadAdminOverview();
     }).catch(function (err) {
       toast(err.message, "error");
     });
   }
+
+  function setAccountStatus(username, status) {
+    api("/api/admin/users/" + encodeURIComponent(username) + "/status", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: status }),
+    }).then(function () {
+      toast("Account " + status + " for " + username + ".", "info");
+      loadAdminUsers();
+      loadAdminOverview();
+    }).catch(function (err) {
+      toast(err.message, "error");
+    });
+  }
+
+  function loadAdminAudit() {
+    var tbody = $("adminAuditTableBody");
+    if (!tbody) return;
+    api("/api/admin/audit-logs?limit=100").then(function (body) {
+      var rows = body.data || [];
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="table-empty">No security events recorded yet.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = rows.map(function (r) {
+        return "<tr>" +
+          '<td class="mono">' + esc(fmtTs(r.created_at)) + "</td>" +
+          "<td>" + esc(r.actor || "—") + "</td>" +
+          "<td>" + esc(r.action) + "</td>" +
+          "<td>" + esc(r.target || "") + "</td>" +
+          "</tr>";
+      }).join("");
+    }).catch(function (err) {
+      tbody.innerHTML = '<tr><td colspan="4" class="table-empty">' + esc(err.message) + "</td></tr>";
+    });
+  }
+
+  function changeAdminPassword(evt) {
+    evt.preventDefault();
+    var note = $("adminPasswordNote");
+    note.textContent = "";
+    if ($("adminNewPassword").value !== $("adminConfirmPassword").value) {
+      note.textContent = "New passwords do not match.";
+      return;
+    }
+    api("/api/auth/change-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        current_password: $("adminCurrentPassword").value,
+        new_password: $("adminNewPassword").value,
+        confirm_password: $("adminConfirmPassword").value,
+      }),
+    }).then(function (body) {
+      note.textContent = body.message || "Password updated.";
+      toast("Password updated successfully.", "info");
+      $("adminCurrentPassword").value = "";
+      $("adminNewPassword").value = "";
+      $("adminConfirmPassword").value = "";
+    }).catch(function (err) {
+      note.textContent = err.message;
+    });
+  }
+
 
   /* ---------------------------------------------------------------- wire */
   function wireEvents() {
@@ -1500,6 +1620,16 @@
     });
 
     $("healthRetry").addEventListener("click", pollHealth);
+
+    // Admin dashboard controls.
+    var adminRefreshBtn = $("adminRefresh");
+    if (adminRefreshBtn) adminRefreshBtn.addEventListener("click", function () {
+      loadAdminOverview(); loadAdminUsers();
+    });
+    var adminAuditBtn = $("adminAuditRefresh");
+    if (adminAuditBtn) adminAuditBtn.addEventListener("click", loadAdminAudit);
+    var adminPwdForm = $("adminPasswordForm");
+    if (adminPwdForm) adminPwdForm.addEventListener("submit", changeAdminPassword);
 
     // Account menu.
     var accountBtn = $("accountBtn");
@@ -1712,17 +1842,22 @@
     api("/api/auth/me").then(function (body) {
       var me = body.data;
       state.currentUser = me;
-      var name = me.username || "Operator";
-      $("accountName").textContent = "Signed in as " + name;
+      var name = me.name || me.username || "Operator";
       $("accountName").innerHTML =
         "Signed in as <b>" + esc(name) + '</b><small class="menu-sub">' +
         esc(me.role_label || "") + "</small>";
       $("accountBtn").textContent = name.slice(0, 2).toUpperCase();
-      // Admin-only controls: user/role administration.
+      // Admin-only controls: hidden from the normal user's navigation and
+      // additionally enforced server-side on every /api/admin/* endpoint.
       var isAdmin = me.role === "admin";
-      var userPanel = $("userAdminPanel");
-      if (userPanel) userPanel.classList.toggle("hidden", !isAdmin);
-      if (isAdmin) loadUsers();
+      ["adminNavItem", "adminNavItemMobile"].forEach(function (id) {
+        var el = $(id);
+        if (el) el.classList.toggle("hidden", !isAdmin);
+      });
+      // Re-run routing now that the role is known: an admin landing directly
+      // on /#/admin gets in; a normal user is redirected to #/live.
+      if (location.hash.replace(/^#\/?/, "") === "admin") navigate();
+      if (window.lucide) lucide.createIcons();
     }).catch(function () { /* redirect handled by api() */ });
     // Sync the ONE shared vehicle-type palette with the server pipeline.
     api("/api/config").then(function (body) {

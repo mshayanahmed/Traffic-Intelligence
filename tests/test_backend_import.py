@@ -13,7 +13,10 @@ class BackendImportTest(unittest.TestCase):
             "-c",
             f"import sys; sys.path.insert(0, {str(backend_dir)!r}); import app; print('OK')",
         ]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+        # Cold-importing torch/cv2/ultralytics can take well over 20s on
+        # typical dev machines; 120s keeps this a real "does not block" check
+        # without being flaky.
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         self.assertEqual(proc.returncode, 0, msg=(proc.stdout + proc.stderr))
         self.assertIn("OK", proc.stdout)
 

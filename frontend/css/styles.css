@@ -1801,3 +1801,14 @@ td.mono, .cell-mono { font-family: var(--font-mono); font-size: 13px; font-weigh
   .report-preview { border:0; box-shadow:none; }
   .report-page { padding:0; }
 }
+
+/* Admin dashboard */
+.admin-stats { display: flex; flex-wrap: wrap; gap: 18px; }
+.admin-stats > div { display: flex; flex-direction: column; min-width: 110px; }
+.admin-stats span { font-size: 22px; font-weight: 700; color: var(--text-primary); }
+.admin-stats label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-secondary); }
+.admin-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 16px; }
+a.hidden { display: none !important; }
+.admin-user-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.admin-user-actions select.user-role-select { padding: 4px 6px; }
+.admin-user-actions .button { padding: 4px 8px; font-size: 12px; }

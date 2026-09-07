@@ -49,6 +49,7 @@
     <a href="#/reports" data-nav="reports"><span data-lucide="file-text" style="width:14px;height:14px"></span>Reports</a>
     <a href="#/sessions" data-nav="sessions"><span data-lucide="history" style="width:14px;height:14px"></span>Sessions</a>
     <a href="#/settings" data-nav="settings"><span data-lucide="settings" style="width:14px;height:14px"></span>Settings</a>
+<a href="#/admin" data-nav="admin" id="adminNavItem" class="hidden"><span data-lucide="shield" style="width:14px;height:14px"></span>Admin</a>
   </nav>
 
   <div class="topbar-spacer"></div>
@@ -639,31 +640,111 @@
         </div>
       </form>
     </article>
+  </section>
 
-    <article class="panel" id="userAdminPanel">
+  <!-- ================================= ADMIN ============================ -->
+  <section id="view-admin" class="view" aria-label="Administration">
+    <div class="page-head">
+      <div>
+        <small>ADMINISTRATOR</small>
+        <h2>Admin Dashboard</h2>
+      </div>
+      <span class="badge teal">ADMIN ONLY</span>
+    </div>
+
+    <article class="panel">
       <div class="panel-head">
         <div>
-          <small>ACCESS CONTROL</small>
-          <h3>Users & roles</h3>
+          <small>OVERVIEW</small>
+          <h3>System &amp; account status</h3>
         </div>
-        <span class="badge">ADMIN ONLY</span>
+        <button type="button" class="button" id="adminRefresh">Refresh</button>
+      </div>
+      <div class="panel-body">
+        <div id="adminStats" class="admin-stats">
+          <div><span id="adminUsersTotal">—</span><label>Total users</label></div>
+          <div><span id="adminUsersVerified">—</span><label>Verified</label></div>
+          <div><span id="adminUsersUnverified">—</span><label>Unverified</label></div>
+          <div><span id="adminUsersDisabled">—</span><label>Disabled</label></div>
+          <div><span id="adminUsersAdmins">—</span><label>Admins</label></div>
+          <div><span id="adminModelStatus">—</span><label>Model status</label></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="panel">
+      <div class="panel-head">
+        <div>
+          <small>USERS</small>
+          <h3>User management</h3>
+        </div>
+        <span class="badge">SERVER-SIDE ENFORCED</span>
       </div>
       <div class="user-table-wrap">
-        <table class="data" id="userTable">
+        <table class="data" id="adminUserTable">
           <thead>
             <tr>
-              <th>Username</th>
-              <th>Role</th>
-              <th>Actions</th>
+              <th>Name</th><th>Email</th><th>Role</th><th>Verified</th>
+              <th>Status</th><th>Registered</th><th>Last login</th><th>Actions</th>
             </tr>
           </thead>
-          <tbody id="userTableBody">
-            <tr><td colspan="3" class="table-empty">Loading users…</td></tr>
+          <tbody id="adminUserTableBody">
+            <tr><td colspan="8" class="table-empty">Loading users…</td></tr>
           </tbody>
         </table>
       </div>
-      <p class="note">Role changes take effect on that user's next sign-in. Administer roles carefully.</p>
+      <p class="note">Passwords are stored only as secure hashes and can never be viewed. Role changes apply on the user's next sign-in.</p>
     </article>
+
+    <div class="admin-grid">
+    <article class="panel">
+      <div class="panel-head">
+        <div>
+          <small>SECURITY</small>
+          <h3>Change admin password</h3>
+        </div>
+      </div>
+      <form id="adminPasswordForm" class="settings-form">
+        <div class="field">
+          <label for="adminCurrentPassword">Current password</label>
+          <input id="adminCurrentPassword" type="password" autocomplete="current-password" required>
+        </div>
+        <div class="field">
+          <label for="adminNewPassword">New password</label>
+          <input id="adminNewPassword" type="password" autocomplete="new-password" required minlength="8">
+          <span class="hint">At least 8 characters with a letter and a number.</span>
+        </div>
+        <div class="field">
+          <label for="adminConfirmPassword">Confirm new password</label>
+          <input id="adminConfirmPassword" type="password" autocomplete="new-password" required minlength="8">
+        </div>
+        <div class="settings-actions">
+          <button class="button primary" type="submit">Update password</button>
+          <span id="adminPasswordNote" class="save-note" role="status"></span>
+        </div>
+      </form>
+    </article>
+
+    <article class="panel">
+      <div class="panel-head">
+        <div>
+          <small>AUDIT LOG</small>
+          <h3>Security events</h3>
+        </div>
+        <button type="button" class="button" id="adminAuditRefresh">Refresh</button>
+      </div>
+      <div class="user-table-wrap" style="max-height:340px;overflow-y:auto">
+        <table class="data" id="adminAuditTable">
+          <thead>
+            <tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th></tr>
+          </thead>
+          <tbody id="adminAuditTableBody">
+            <tr><td colspan="4" class="table-empty">Loading audit log…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
+    </div>
   </section>
 
 </main>
@@ -679,6 +760,7 @@
   <a href="#/sessions" data-nav="sessions"><span data-lucide="history"></span>Sessions</a>
   <a href="#/heatmap" data-nav="heatmap"><span data-lucide="flame"></span>Heatmap</a>
   <a href="#/settings" data-nav="settings"><span data-lucide="settings"></span>Settings</a>
+<a href="#/admin" data-nav="admin" id="adminNavItemMobile" class="hidden"><span data-lucide="shield"></span>Admin</a>
 </nav>
 
 <div id="toastRegion" class="toast-region" aria-live="polite"></div>
