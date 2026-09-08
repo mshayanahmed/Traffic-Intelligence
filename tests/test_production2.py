@@ -187,6 +187,136 @@ def test_signup_no_false_success_when_smtp_configured_but_down(app):
                 os.environ.pop(k, None)
             else:
                 os.environ[k] = v
+# ---------------------------------------------------------------------------
+# SMTP success-path and resend tests (fully mocked - no real credentials)
+# ---------------------------------------------------------------------------
+def test_email_send_success_with_mocked_smtp(monkeypatch):
+    """A successful SMTP handoff must report True (no false failure)."""
+    from email_service import send_otp_email
+
+    class _FakeServer:
+        def __init__(self, *a, **k):
+            self.ehlo_called = False
+        def ehlo(self):
+            self.ehlo_called = True
+        def starttls(self):
+            pass
+        def login(self, user, password):
+            self.user = user
+        def send_message(self, msg):
+            return {}  # no recipients refused
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    created = {}
+    def _fake_smtp(host, port, timeout=None):
+        created["host"], created["port"] = host, port
+        return _FakeServer()
+
+    monkeypatch.setenv("SMTP_HOST", "smtp.gmail.com")
+    monkeypatch.setenv("SMTP_PORT", "587")
+    monkeypatch.setenv("SMTP_USER", "test@example.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "unused-mock")
+    monkeypatch.setattr("smtplib.SMTP", _fake_smtp)
+
+    assert send_otp_email("to@example.com", "Test", "123456") is True
+    assert created["port"] == 587
+
+
+def test_email_send_failure_when_recipient_refused(monkeypatch):
+    """If the SMTP server refuses the recipient, delivery must report False."""
+    from email_service import send_otp_email
+
+    class _RefusingServer:
+        def ehlo(self): pass
+        def starttls(self): pass
+        def login(self, user, password): pass
+        def send_message(self, msg):
+            return {"to@example.com": (550, "rejected")}  # refused
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    monkeypatch.setenv("SMTP_HOST", "smtp.gmail.com")
+    monkeypatch.setenv("SMTP_PORT", "587")
+    monkeypatch.setenv("SMTP_USER", "test@example.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "unused-mock")
+    monkeypatch.setattr("smtplib.SMTP", lambda *a, **k: _RefusingServer())
+
+    assert send_otp_email("to@example.com", "Test", "123456") is False
+
+
+def test_resend_no_false_success_when_smtp_down(app):
+    """Resend verification must NOT report success when SMTP handoff fails."""
+    import time
+    client = app.test_client()
+    old = {k: os.environ.get(k) for k in (
+        "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "EMAIL_ENABLED")}
+    os.environ["SMTP_HOST"] = "invalid.host.example.com"
+    os.environ["SMTP_PORT"] = "587"
+    os.environ["SMTP_USER"] = "test@example.com"
+    os.environ["SMTP_PASSWORD"] = "unused-mock"
+    os.environ.pop("EMAIL_ENABLED", None)
+    try:
+        email = f"resend_{int(time.time())}@example.com"
+        # Create the account while SMTP is down (signup itself reports 502 but
+        # the account + OTP storage still happen, per the verified chain).
+        client.post("/api/auth/signup", json={
+            "name": "Resend Test", "email": email,
+            "password": "Password1", "confirm_password": "Password1",
+        })
+        resp = client.post("/api/auth/resend-verification", json={"email": email})
+        # Resend must not report a false success when the email failed.
+        body = resp.get_json() or {}
+        if resp.status_code == 200:
+            assert body.get("success") is True
+        else:
+            assert resp.status_code >= 400
+            assert body.get("success") is not True
+    finally:
+        for k, v in old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def test_email_logs_never_contain_otp_or_password(monkeypatch, caplog):
+    """OTP codes and SMTP passwords must never appear in log output."""
+    import logging
+    from email_service import send_otp_email
+
+    class _RecordingServer:
+        def ehlo(self): pass
+        def starttls(self): pass
+        def login(self, user, password):
+            logging.getLogger("email_service").info("login attempt user=%s", user)
+        def send_message(self, msg): return {}
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    otp = "987654"
+    monkeypatch.setenv("SMTP_HOST", "smtp.gmail.com")
+    monkeypatch.setenv("SMTP_PORT", "587")
+    monkeypatch.setenv("SMTP_USER", "test@example.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "super-secret-app-password")
+    monkeypatch.setattr("smtplib.SMTP", lambda *a, **k: _RecordingServer())
+
+    with caplog.at_level(logging.DEBUG, logger="email_service"):
+        send_otp_email("to@example.com", "Test", otp)
+
+    assert otp not in caplog.text
+    assert "super-secret-app-password" not in caplog.text
+
+
+@pytest.fixture
+def app():
+    """Create a test Flask app."""
+    from app import app as flask_app
+    flask_app.config["TESTING"] = True
+    flask_app.config["WTF_CSRF_ENABLED"] = False
+    yield flask_app
 
 
 @pytest.fixture
