@@ -100,13 +100,19 @@ def _load_model_blocking():
 
 
 def ensure_model_loaded(async_load=True):
-    """Ensure model load is scheduled or completed without blocking health checks."""
+    """Ensure model load is scheduled or completed without blocking health checks.
+
+    Only a NOT_LOADED model triggers an async load. READY, LOADING and ERROR
+    are terminal/stable states and are reported as-is. Previously this
+    function re-armed a LOADING state on every health poll when the model had
+    actually failed, so the UI never escaped "Loading". Keeping a failed model
+    in ERROR lets the frontend surface a real Error/Failed state instead.
+    """
     global model_status
     with _model_lock:
-        if model_status == "READY":
+        if model_status in ("READY", "LOADING", "ERROR"):
             return model_status
-        if model_status == "LOADING":
-            return model_status
+        # NOT_LOADED -> schedule the initial load exactly once.
         if async_load:
             model_status = "LOADING"
             _model_state["status"] = "loading"

@@ -1659,11 +1659,26 @@
       }
     });
     document.addEventListener("click", function () { setAccountMenu(false); });
-    $("logoutBtn").addEventListener("click", function () {
-      api("/api/auth/logout", { method: "POST" }).then(function () {
-        window.location.href = "/login.html";
-      });
-    });
+
+    // Shared logout: posts to the server (invalidates the server session),
+    // then redirects to login. Both the desktop account menu and the mobile
+    // tab bar use this same path so behavior stays consistent everywhere.
+    function performLogout() {
+      api("/api/auth/logout", { method: "POST" })
+        .then(function () {
+          window.location.href = "/login.html";
+        })
+        .catch(function () {
+          // Even if the POST fails, never leave the user stuck on a signed-in
+          // shell - move to login (the session cookie is server-signed and
+          // protected by the auth gate on every API call).
+          window.location.href = "/login.html";
+        });
+    }
+    var logoutBtnEl = $("logoutBtn");
+    if (logoutBtnEl) logoutBtnEl.addEventListener("click", performLogout);
+    var logoutMobileEl = $("logoutMobile");
+    if (logoutMobileEl) logoutMobileEl.addEventListener("click", performLogout);
 
     // Evidence: debounced search (250ms) + filters + pagination.
     $("vehicleSearch").addEventListener("input", function () {

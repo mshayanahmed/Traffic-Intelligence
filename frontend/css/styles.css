@@ -1812,3 +1812,75 @@ a.hidden { display: none !important; }
 .admin-user-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .admin-user-actions select.user-role-select { padding: 4px 6px; }
 .admin-user-actions .button { padding: 4px 8px; font-size: 12px; }
+
+/* =====================================================================
+   Mobile responsiveness fixes (appended so they win the cascade).
+   Target: 320px – 430px phones while preserving the desktop layout.
+   ===================================================================== */
+@media (max-width: 767px) {
+  /* Never let a page-level horizontal scrollbar appear on phones. */
+  html, body { overflow-x: hidden; }
+  .shell { padding: 14px 12px 120px; max-width: 100%; }
+  .topbar { padding: 0 12px; gap: 8px; }
+
+  /* KPI metric cards: replace the swipeable flex row (which caused horizontal
+     overflow / overlapping) with a tidy 2-up stacking grid. */
+  .kpis {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .metric { min-width: 0; }
+
+  /* Admin stat tiles: never force a 660px flex row on a 320px screen. */
+  .admin-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .admin-stats > div { min-width: 0; }
+
+  /* Admin layout must not force a 320px-min column that overflows narrow
+     viewports (body was 332px wide at a 320px viewport). */
+  .admin-grid { grid-template-columns: 1fr; }
+  /* CSS grid items default to min-width:auto, so the wide .settings-form
+     (repeat(auto-fit, minmax(240px,1fr))) blew the admin password panel up to
+     ~866px on a 320px phone. Let the panel and its fields shrink. */
+  .admin-grid > .panel { min-width: 0; }
+  .settings-form > .field { min-width: 0; }
+  .settings-form { grid-template-columns: 1fr; }
+
+  /* Data tables stay inside their scroll container (no page overflow). */
+  .table-scroll, .user-table-wrap { width: 100%; max-width: 100%; }
+  table.data { width: 100%; }
+
+  /* Controls wrap and keep touch-friendly tap targets. */
+  .controls { flex-wrap: wrap; }
+  .controls button, .controls a.button { min-height: 38px; }
+
+  /* Live feed keeps its 16:9 footprint but scales to the card width. */
+  .feed-frame { max-width: 100%; }
+
+  /* Bottom tab bar: scrollable row, larger tap targets, sign-out reachable. */
+  .tabbar { display: flex; }
+  .tabbar a, .tabbar button { min-height: 44px; }
+  .tabbar button.signout-button {
+    display: inline-flex; flex-direction: column; align-items: center; gap: 2px;
+    min-width: 72px; padding: 8px 10px; margin: 0;
+    border: 0; background: none;
+    color: var(--accent-red);
+    font-size: 10px; font-weight: 600;
+    letter-spacing: .04em; text-transform: uppercase;
+  }
+  .tabbar button.signout-button:hover, .tabbar button.signout-button:focus-visible {
+    color: var(--accent-red); background: rgba(192,72,72,.15);
+  }
+}
+
+@media (max-width: 420px) {
+  /* Narrowest phones: single column keeps every card readable. */
+  .kpis { grid-template-columns: 1fr; }
+  .admin-stats { grid-template-columns: 1fr 1fr; }
+  .hud { flex-wrap: wrap; }
+  .page-head em { max-width: 100%; overflow-wrap: anywhere; }
+}

@@ -625,19 +625,30 @@ def signup():
     _audit(email, "signup", None, None)
     logger.info("verification_request_received domain=%s", email.rsplit("@", 1)[1])
     ok, result = issue_otp(email, "verify_email")
-    if ok:
-        delivered = email_service.send_otp_email(email, name, result, "verify_email")
-        if not delivered:
-            return jsonify({
-                "success": False,
-                "error": "Account created, but the verification email could not be sent. Please try again later.",
-            }), 502
+    if not ok:
+        # No OTP could be issued (e.g. hourly cap reached). Do NOT present a
+        # green "verification sent" step - nothing was emailed or stored.
+        _audit(email, "signup_otp_failed", None, result)
+        return jsonify({"success": False, "error": result}), 429
+
+    delivered = email_service.send_otp_email(email, name, result, "verify_email")
+    if not delivered and email_service.smtp_configured():
+        # SMTP is expected in this deployment but handoff failed - report the
+        # real status instead of a false success so the UI never shows a green
+        # verify step when no email was actually accepted by the relay.
+        logger.warning("email_delivery_failed signup email=%s", email.rsplit("@", 1)[1])
+        return jsonify({
+            "success": False,
+            "error": "Account created, but the verification email could not be sent. Please try again later.",
+        }), 502
+
     # No session is created here: the user must verify their email and then
     # sign in manually.
     message = ("Account created. We've sent a verification code to your email."
-               if ok else
-               "Account created. A verification code could not be sent right "
-               "now - use 'Resend verification code' to try again.")
+               if delivered else
+               "Account created, but SMTP is not configured so no verification "
+               "code was emailed. Use 'Resend verification code' once email is "
+               "enabled.")
     return jsonify({"success": True, "message": message,
                     "data": {"email": email}})
 
