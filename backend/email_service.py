@@ -202,15 +202,28 @@ def _send_http(message):
     # only a short category/message snippet is logged. Never log API keys,
     # OTPs, or authorization headers.
     category = ""
+    detail = ""
     try:
         body = resp.json()
-        category = str(body.get("name") or body.get("error") or
-                       body.get("message") or "")
+        if isinstance(body, dict):
+            category = str(body.get("name") or body.get("error") or "")
+            # Resend puts the actionable reason in "message" (e.g. why a
+            # 400 validation_error occurred); log it separately so the
+            # short "name" never hides the real cause.
+            detail = str(body.get("message") or "")
     except Exception:
         category = ""
-    category = _mask_emails(category)[:200]
-    logger.error("email_send_failed stage=http_rejected provider=%s "
-                 "status=%s category=%s", provider, resp.status_code, category)
+        detail = ""
+    category = _mask_emails(category)[:120]
+    detail = _mask_emails(detail)[:200]
+    if detail:
+        logger.error("email_send_failed stage=http_rejected provider=%s "
+                     "status=%s category=%s detail=%s",
+                     provider, resp.status_code, category, detail)
+    else:
+        logger.error("email_send_failed stage=http_rejected provider=%s "
+                     "status=%s category=%s",
+                     provider, resp.status_code, category)
     return False
 
 def _send(message):

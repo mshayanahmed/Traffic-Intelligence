@@ -387,6 +387,9 @@ def test_http_provider_error_classification_logged_safely(monkeypatch, caplog):
         assert send_otp_email("to@example.com", "Test", "123456") is False
     text = caplog.text
     assert "status=403" in text and "validation_error" in text
+    # The actionable Resend "message" must be logged (masked), not hidden
+    # behind the short "name" category.
+    assert "detail=" in text and "testing emails" in text
     assert "owner@resend.com" not in text, "full email leaked into logs"
     assert "mock-key-not-real" not in text and "123456" not in text
 
