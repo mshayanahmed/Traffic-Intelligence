@@ -40,6 +40,15 @@ def _masked_recipient(value):
     return (local[:1] + "***@" + domain) if local else "***@" + domain
 
 
+def _mask_emails(text):
+    """Mask any full email addresses inside a provider error string."""
+    import re
+    return re.sub(
+        r"([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]*@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+        lambda m: m.group(1) + "***@" + m.group(0).split("@")[1],
+        text or "")
+
+
 def smtp_configured():
     """True when an SMTP relay is configured and email is not force-disabled."""
     forced = _env("EMAIL_ENABLED").lower()
@@ -188,9 +197,20 @@ def _send_http(message):
     if 200 <= resp.status_code < 300:
         logger.info("http_send_completed provider=%s to=%s", provider, recipient)
         return True
-    # Status code only - the response body may echo payloads; never log it.
+    # Log status code plus a safe provider error classification only. The
+    # response body may echo payload data, so email addresses are masked and
+    # only a short category/message snippet is logged. Never log API keys,
+    # OTPs, or authorization headers.
+    category = ""
+    try:
+        body = resp.json()
+        category = str(body.get("name") or body.get("error") or
+                       body.get("message") or "")
+    except Exception:
+        category = ""
+    category = _mask_emails(category)[:200]
     logger.error("email_send_failed stage=http_rejected provider=%s "
-                 "status=%s", provider, resp.status_code)
+                 "status=%s category=%s", provider, resp.status_code, category)
     return False
 
 def _send(message):

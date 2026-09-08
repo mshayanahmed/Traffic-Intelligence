@@ -226,15 +226,27 @@
       state.lastUpdateAt = state.lastUpdateAt || Date.now();
       setHealth("healthBackend", d.backend, "ok");
 
+      // Model tile: explicit /api/model-status endpoint is the single source
+      // of truth for the model lifecycle. States: Loading / Ready / Error /
+      // Offline - never an indefinite "Loading" on error or failure.
+      setHealth("healthModel", "Loading", "idle");
+      api("/api/model-status").then(function (mb) {
+        var s = (mb && mb.success && mb.data && mb.data.status) || "";
+        if (s === "ready") {
+          setHealth("healthModel", "Ready", "ok");
+        } else if (s === "loading" || s === "not_loaded") {
+          setHealth("healthModel", s === "loading" ? "Loading" : "Not loaded", "idle");
+        } else if (s === "error") {
+          setHealth("healthModel", "Error", "fail");
+        } else {
+          setHealth("healthModel", "Offline", "fail");
+        }
+      }).catch(function () {
+        setHealth("healthModel", "Offline", "fail");
+      });
       var modelState = (d.ai_model_status || d.ai_model || "not_loaded").toLowerCase();
-      var modelStatusRaw = (d.ai_model || "").toUpperCase();
-      var modelLabel = (modelStatusRaw === "READY" || modelStatusRaw === "LOADED") ? "Ready" :
-        (modelStatusRaw === "LOADING" ? "Loading" :
-          (modelStatusRaw === "ERROR" || modelStatusRaw === "FAILED" ? "Error" :
-            (modelStatusRaw === "NOT_LOADED" ? "Not loaded" : (d.ai_model_status ? d.ai_model_status : "Not checked"))));
-      var modelCls = (modelState === "ready" || modelStatusRaw === "READY") ? "ok" :
-        ((modelState === "error" || modelStatusRaw === "ERROR") ? "fail" : "idle");
-      setHealth("healthModel", modelLabel, modelCls);
+      var modelCls = (modelState === "ready") ? "ok" :
+        (modelState === "error" ? "fail" : "idle");
 
       setHealth("healthProcessor", d.video_processor,
         d.video_processor === "Processing" ? "ok" : "idle");

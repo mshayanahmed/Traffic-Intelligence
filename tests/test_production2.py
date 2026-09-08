@@ -370,6 +370,27 @@ def test_http_provider_rejection_failure(monkeypatch):
     assert send_otp_email("to@example.com", "Test", "123456") is False
 
 
+def test_http_provider_error_classification_logged_safely(monkeypatch, caplog):
+    """403 must log provider/status/category with emails masked, no secrets."""
+    import logging
+    from email_service import send_otp_email
+    _http_env(monkeypatch, "resend")
+
+    class _ErrResponse(_FakeResponse):
+        def json(self):
+            return {"name": "validation_error",
+                    "message": "You can only send testing emails to owner@resend.com"}
+
+    monkeypatch.setattr("requests.post",
+                        lambda url, **k: _ErrResponse(403))
+    with caplog.at_level(logging.DEBUG, logger="email_service"):
+        assert send_otp_email("to@example.com", "Test", "123456") is False
+    text = caplog.text
+    assert "status=403" in text and "validation_error" in text
+    assert "owner@resend.com" not in text, "full email leaked into logs"
+    assert "mock-key-not-real" not in text and "123456" not in text
+
+
 def test_http_provider_timeout_failure(monkeypatch):
     """Network errors/timeouts must report False, never raise."""
     import requests as _requests
