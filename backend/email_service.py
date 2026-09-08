@@ -8,7 +8,12 @@ treat delivery as best-effort so authentication never fails because mail is
 down.
 
 Environment variables:
-    SMTP_HOST       SMTP server hostname (empty => email disabled)
+    EMAIL_PROVIDER  auto|resend|sendgrid|postmark|brevo|mailgun|smtp (default auto)
+    RESEND_API_KEY / SENDGRID_API_KEY / POSTMARK_SERVER_TOKEN /
+    BREVO_API_KEY / MAILGUN_API_KEY + MAILGUN_DOMAIN
+                    HTTP transactional providers (preferred on Render Free,
+                    which blocks outbound SMTP ports 25/465/587)
+    SMTP_HOST       SMTP server hostname (fallback transport; empty => no SMTP)
     SMTP_PORT       SMTP port (default 587)
     SMTP_USER       SMTP username (optional; empty => no SMTP auth)
     SMTP_PASSWORD   SMTP password (never logged, never returned)
@@ -52,13 +57,152 @@ def _from_address():
 def _app_url():
     return _env("APP_URL").rstrip("/") or "https://traffic-intelligence-web.vercel.app"
 
+def _env(name, default=""):
+    return (os.environ.get(name) or default).strip()
+
+
+# ---------------------------------------------------------------------------
+# HTTP transactional email providers (Render Free blocks outbound SMTP ports
+# 25/465/587, so production uses an HTTP API transport instead).
+#
+# Provider selection (no credentials are ever hard-coded or logged):
+#   EMAIL_PROVIDER   auto|resend|sendgrid|postmark|brevo|mailgun|smtp
+#   RESEND_API_KEY   enables the Resend HTTP API
+#   SENDGRID_API_KEY enables the SendGrid HTTP API
+#   POSTMARK_SERVER_TOKEN enables Postmark
+#   BREVO_API_KEY    enables Brevo
+#   MAILGUN_API_KEY + MAILGUN_DOMAIN enable Mailgun
+#   MAIL_FROM        sender address (used by every transport)
+# With EMAIL_PROVIDER unset/"auto" the first configured HTTP provider wins;
+# SMTP is used only when no HTTP provider is configured (optional fallback).
+# ---------------------------------------------------------------------------
+_HTTP_PROVIDERS = ("resend", "sendgrid", "postmark", "brevo", "mailgun")
+
+
+def _active_http_provider():
+    """Return the configured HTTP provider name, or '' when SMTP-only."""
+    forced = _env("EMAIL_PROVIDER").lower()
+    if forced == "smtp":
+        return ""
+    if forced in _HTTP_PROVIDERS:
+        return forced
+    # auto-detect from whichever provider credential is present
+    if _env("RESEND_API_KEY"):
+        return "resend"
+    if _env("SENDGRID_API_KEY"):
+        return "sendgrid"
+    if _env("POSTMARK_SERVER_TOKEN"):
+        return "postmark"
+    if _env("BREVO_API_KEY"):
+        return "brevo"
+    if _env("MAILGUN_API_KEY") and _env("MAILGUN_DOMAIN"):
+        return "mailgun"
+    return ""
+
+
+def delivery_configured():
+    """True when ANY email transport (HTTP provider or SMTP) is configured.
+
+    EMAIL_ENABLED=false/0 force-disables every transport; EMAIL_ENABLED=true/1
+    force-enables (used when credentials are injected at runtime).
+    """
+    forced = _env("EMAIL_ENABLED").lower()
+    if forced in ("0", "false", "no", "off"):
+        return False
+    if forced in ("1", "true", "yes", "on"):
+        return True
+    return bool(_env("SMTP_HOST")) or bool(_active_http_provider())
+
+
+def _plain_text_body(message):
+    body = message.get_content()
+    if isinstance(body, bytes):
+        body = body.decode(message.get_content_charset() or "utf-8", "replace")
+    return body
+
+
+def _send_http(message):
+    """Deliver via the configured HTTP provider.
+
+    Returns True only when the provider API accepted the request (HTTP 2xx).
+    Never logs API keys, message bodies, OTP values, or full recipients.
+    """
+    provider = _active_http_provider()
+    if not provider:
+        return False
+    recipient = _masked_recipient(message["To"])
+    try:
+        import requests
+    except ImportError:  # pragma: no cover - requests is in requirements.txt
+        logger.error("email_send_failed stage=missing_requests_dependency")
+        return False
+
+    from_email = _from_address()
+    to_email = message["To"]
+    subject = message["Subject"]
+    text = _plain_text_body(message)
+
+    endpoints = {
+        "resend": ("https://api.resend.com/emails",
+                   {"Authorization": "Bearer " + _env("RESEND_API_KEY")},
+                   {"from": from_email, "to": [to_email],
+                    "subject": subject, "text": text}),
+        "sendgrid": ("https://api.sendgrid.com/v3/mail/send",
+                     {"Authorization": "Bearer " + _env("SENDGRID_API_KEY")},
+                     {"personalizations": [{"to": [{"email": to_email}]}],
+                      "from": {"email": from_email}, "subject": subject,
+                      "content": [{"type": "text/plain", "value": text}]}),
+        "postmark": ("https://api.postmarkapp.com/email",
+                     {"X-Postmark-Server-Token": _env("POSTMARK_SERVER_TOKEN"),
+                      "Accept": "application/json"},
+                     {"From": from_email, "To": to_email,
+                      "Subject": subject, "TextBody": text}),
+        "brevo": ("https://api.brevo.com/v3/smtp/email",
+                  {"api-key": _env("BREVO_API_KEY"),
+                   "Content-Type": "application/json"},
+                  {"sender": {"email": from_email},
+                   "to": [{"email": to_email}],
+                   "subject": subject, "textContent": text}),
+    }
+    if provider == "mailgun":
+        url = "https://api.mailgun.net/v3/%s/messages" % _env("MAILGUN_DOMAIN")
+        headers = {}
+        auth = ("api", _env("MAILGUN_API_KEY"))
+        payload = {"from": from_email, "to": to_email,
+                   "subject": subject, "text": text}
+    else:
+        url, headers, payload = endpoints[provider]
+        auth = None
+
+    logger.info("email_send_started transport=http provider=%s to=%s",
+                provider, recipient)
+    try:
+        logger.info("http_send_started provider=%s to=%s", provider, recipient)
+        resp = requests.post(url, json=payload if provider != "mailgun" else None,
+                             data=payload if provider == "mailgun" else None,
+                             headers=headers, auth=auth, timeout=20)
+    except requests.RequestException as exc:
+        logger.error("email_send_failed stage=http_network provider=%s "
+                     "error_type=%s", provider, type(exc).__name__)
+        return False
+    if 200 <= resp.status_code < 300:
+        logger.info("http_send_completed provider=%s to=%s", provider, recipient)
+        return True
+    # Status code only - the response body may echo payloads; never log it.
+    logger.error("email_send_failed stage=http_rejected provider=%s "
+                 "status=%s", provider, resp.status_code)
+    return False
 
 def _send(message):
-    """Send and report whether the SMTP server accepted every recipient."""
+    """Send and report whether the transport accepted every recipient."""
     recipient = _masked_recipient(message["To"])
-    if not smtp_configured():
-        logger.warning("email_send_failed stage=smtp_not_configured to=%s", recipient)
+    if not delivery_configured():
+        logger.warning("email_send_failed stage=email_not_configured to=%s", recipient)
         return False
+    # HTTP transactional provider takes priority (Render Free blocks SMTP
+    # egress); SMTP remains available as an optional fallback transport.
+    if _active_http_provider():
+        return _send_http(message)
     host = _env("SMTP_HOST")
     try:
         port = int(_env("SMTP_PORT", "587") or 587)

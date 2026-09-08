@@ -326,3 +326,126 @@ def app():
     flask_app.config["TESTING"] = True
     flask_app.config["WTF_CSRF_ENABLED"] = False
     yield flask_app
+
+# ---------------------------------------------------------------------------
+# HTTP transactional provider tests (fully mocked - no network, no secrets)
+# ---------------------------------------------------------------------------
+def _http_env(monkeypatch, provider="resend"):
+    """Configure a mock HTTP email provider environment."""
+    monkeypatch.setenv("EMAIL_PROVIDER", provider)
+    monkeypatch.setenv("MAIL_FROM", "TI <no-reply@example.com>")
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    creds = {"resend": "RESEND_API_KEY", "sendgrid": "SENDGRID_API_KEY",
+             "postmark": "POSTMARK_SERVER_TOKEN", "brevo": "BREVO_API_KEY"}
+    if provider in creds:
+        monkeypatch.setenv(creds[provider], "mock-key-not-real")
+    monkeypatch.delenv("EMAIL_ENABLED", raising=False)
+
+
+class _FakeResponse:
+    def __init__(self, status_code):
+        self.status_code = status_code
+        self.text = "{}"
+
+
+def test_http_provider_success(monkeypatch):
+    """HTTP provider 2xx response must report True."""
+    from email_service import send_otp_email, delivery_configured
+    _http_env(monkeypatch, "resend")
+    assert delivery_configured() is True
+    calls = {}
+    def fake_post(url, **kwargs):
+        calls["url"] = url
+        return _FakeResponse(200)
+    monkeypatch.setattr("requests.post", fake_post)
+    assert send_otp_email("to@example.com", "Test", "123456") is True
+    assert "resend" in calls["url"]
+
+
+def test_http_provider_rejection_failure(monkeypatch):
+    """HTTP provider 4xx/5xx must report False (no false success)."""
+    from email_service import send_otp_email
+    _http_env(monkeypatch, "resend")
+    monkeypatch.setattr("requests.post", lambda url, **k: _FakeResponse(401))
+    assert send_otp_email("to@example.com", "Test", "123456") is False
+
+
+def test_http_provider_timeout_failure(monkeypatch):
+    """Network errors/timeouts must report False, never raise."""
+    import requests as _requests
+    from email_service import send_otp_email
+    _http_env(monkeypatch, "resend")
+    def fake_post(url, **kwargs):
+        raise _requests.exceptions.Timeout("timed out")
+    monkeypatch.setattr("requests.post", fake_post)
+    assert send_otp_email("to@example.com", "Test", "123456") is False
+
+
+def test_http_provider_sendgrid_and_brevo_endpoints(monkeypatch):
+    """Provider selection must honour EMAIL_PROVIDER for each supported provider."""
+    import email_service
+    for provider, marker in (("sendgrid", "sendgrid"), ("brevo", "brevo"),
+                             ("postmark", "postmark")):
+        _http_env(monkeypatch, provider)
+        assert email_service._active_http_provider() == provider
+        seen = {}
+        monkeypatch.setattr("requests.post",
+                            lambda url, **k: (seen.setdefault("url", url),
+                                              _FakeResponse(200))[1])
+        assert email_service.send_otp_email("to@example.com", "T", "123456") is True
+        assert marker in seen["url"]
+
+
+def test_http_provider_logs_never_contain_secrets(monkeypatch, caplog):
+    """API keys and OTP must never appear in HTTP transport logs."""
+    import logging
+    from email_service import send_otp_email
+    _http_env(monkeypatch, "resend")
+    monkeypatch.setattr("requests.post", lambda url, **k: _FakeResponse(200))
+    otp = "445566"
+    with caplog.at_level(logging.DEBUG, logger="email_service"):
+        result = send_otp_email("to@example.com", "Test", otp)
+    assert result is True
+    assert otp not in caplog.text
+    assert "mock-key-not-real" not in caplog.text
+
+
+def test_signup_no_false_success_when_http_provider_fails(app, monkeypatch):
+    """Signup must return failure (never green success) when the HTTP provider rejects."""
+    import time
+    client = app.test_client()
+    _http_env(monkeypatch, "resend")
+    monkeypatch.setattr("requests.post", lambda url, **k: _FakeResponse(500))
+    resp = client.post("/api/auth/signup", json={
+        "name": "HTTP Fail", "email": f"httpfail_{int(time.time())}@example.com",
+        "password": "Password1", "confirm_password": "Password1",
+    })
+    assert resp.status_code == 502
+    assert resp.get_json()["success"] is False
+
+
+def test_otp_storage_unaffected_by_transport_choice(app, monkeypatch):
+    """OTP issuance/storage must work identically regardless of transport."""
+    import time
+    client = app.test_client()
+    _http_env(monkeypatch, "resend")
+    monkeypatch.setattr("requests.post", lambda url, **k: _FakeResponse(200))
+    email = f"otpstore_{int(time.time())}@example.com"
+    resp = client.post("/api/auth/signup", json={
+        "name": "OTP Store", "email": email,
+        "password": "Password1", "confirm_password": "Password1",
+    })
+    assert resp.status_code == 200
+    assert resp.get_json()["success"] is True
+    # OTP was stored: an immediate duplicate resend is rate-limited.
+    resp2 = client.post("/api/auth/resend-verification", json={"email": email})
+    assert resp2.status_code == 429
+
+
+@pytest.fixture
+def app():
+    """Create a test Flask app."""
+    from app import app as flask_app
+    flask_app.config["TESTING"] = True
+    flask_app.config["WTF_CSRF_ENABLED"] = False
+    yield flask_app

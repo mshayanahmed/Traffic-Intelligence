@@ -632,10 +632,11 @@ def signup():
         return jsonify({"success": False, "error": result}), 429
 
     delivered = email_service.send_otp_email(email, name, result, "verify_email")
-    if not delivered and email_service.smtp_configured():
-        # SMTP is expected in this deployment but handoff failed - report the
-        # real status instead of a false success so the UI never shows a green
-        # verify step when no email was actually accepted by the relay.
+    if not delivered and email_service.delivery_configured():
+        # Email delivery is expected in this deployment but the transport
+        # (HTTP provider or SMTP) failed - report the real status instead of
+        # a false success so the UI never shows a green verify step when no
+        # email was actually accepted.
         logger.warning("email_delivery_failed signup email=%s", email.rsplit("@", 1)[1])
         return jsonify({
             "success": False,
@@ -646,9 +647,9 @@ def signup():
     # sign in manually.
     message = ("Account created. We've sent a verification code to your email."
                if delivered else
-               "Account created, but SMTP is not configured so no verification "
-               "code was emailed. Use 'Resend verification code' once email is "
-               "enabled.")
+               "Account created, but email delivery is not configured so no "
+               "verification code was emailed. Use 'Resend verification code' "
+               "once email is enabled.")
     return jsonify({"success": True, "message": message,
                     "data": {"email": email}})
 
