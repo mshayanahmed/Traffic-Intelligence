@@ -92,8 +92,13 @@ def _send(message):
             return False
         logger.info("smtp_send_completed to=%s", recipient)
         return True
-    except (OSError, smtplib.SMTPException):
-        logger.exception("email_send_failed stage=smtp_delivery to=%s", recipient)
+    except (OSError, smtplib.SMTPException) as exc:
+        # Log only the exception CLASS and stage - never credentials, OTPs,
+        # or full tracebacks containing environment details.
+        logger.error(
+            "email_send_failed stage=smtp_delivery to=%s error_type=%s",
+            recipient, type(exc).__name__)
+        logger.debug("email_send_failed detail: %s", exc)
         return False
 
 
